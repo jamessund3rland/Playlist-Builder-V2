@@ -8,15 +8,25 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Capturar parámetros de la URL
+// Capturar parámetros y títulos desde la URL
 function parseUrlParams() {
     const urlParams = new URLSearchParams(window.location.search);
     const videosParam = urlParams.get('videos');
+    const titlesParam = urlParams.get('titles');
     const fadeParam = urlParams.get('crossfade');
 
     if (videosParam) {
         videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
     }
+    
+    if (titlesParam) {
+        try {
+            videoTitles = JSON.parse(decodeURIComponent(titlesParam));
+        } catch (e) {
+            console.error("Error al decodificar títulos:", e);
+        }
+    }
+
     if (fadeParam) {
         crossfadeSec = parseInt(fadeParam, 10) || 10;
     }
@@ -29,13 +39,12 @@ function updateStatus(text) {
     if (el) el.textContent = text;
 }
 
-// Configurar el comportamiento del botón original para mostrar/ocultar la playlist
+// Configurar comportamiento del botón original para mostrar/ocultar
 function setupPlaylistToggle() {
     const playlistBtn = document.getElementById('playlist-btn') || document.querySelector('.playlist-btn') || document.querySelector('button[id*="playlist"]');
     const playlistContainer = document.getElementById('playlist-container') || document.querySelector('.playlist-container');
 
     if (playlistBtn && playlistContainer) {
-        // Asegurar que responda al clic para alternar visibilidad
         playlistBtn.onclick = (e) => {
             e.preventDefault();
             if (playlistContainer.style.display === 'none' || playlistContainer.style.visibility === 'hidden') {
@@ -51,14 +60,11 @@ function setupPlaylistToggle() {
 function renderPlaylist() {
     if (videoList.length === 0) parseUrlParams();
 
-    // Buscar los elementos originales del HTML
     const playlistEl = document.getElementById('playlist-container') || document.querySelector('.playlist-container');
     const countEl = document.getElementById('playlist-count') || document.querySelector('#playlist-btn');
     const fadeInfoEl = document.getElementById('fade-info') || document.getElementById('crossfade-duration');
 
-    // Actualizar contador en el botón original
     if (countEl) {
-        // Si el botón contiene texto estructurado, actualizamos solo el número o el texto manteniendo su formato
         if (countEl.tagName === 'BUTTON' || countEl.id === 'playlist-btn') {
             countEl.innerHTML = `≡ Playlist (${videoList.length})`;
         } else {
@@ -66,7 +72,6 @@ function renderPlaylist() {
         }
     }
 
-    // Mostrar los segundos de crossfade si existe el elemento en el HTML
     if (fadeInfoEl) {
         fadeInfoEl.textContent = `${crossfadeSec}s`;
     }
@@ -80,11 +85,10 @@ function renderPlaylist() {
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
         item.style.cursor = 'pointer';
         
-        // Usar el título real si la extensión lo envió o un nombre descriptivo
-        const titleText = videoTitles[id] || `Track ${index + 1} (${id})`;
+        // Mostrar el título real del marcador obtenido de YouTube
+        const titleText = videoTitles[id] || `Track ${index + 1}`;
         item.textContent = titleText;
         
-        // Permitir clic para saltar al track
         item.addEventListener('click', () => {
             currentIndex = index;
             if (playerA && playerA.loadVideoById) {
