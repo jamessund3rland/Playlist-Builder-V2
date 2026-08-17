@@ -24,7 +24,6 @@ function startCrossfade() {
         fadeInPlayer.playVideo();
     }
 
-    // TRANSICIÓN SUAVE: Usamos más micropasos (cada 50ms) para un devanecimiento natural
     const durationMs = crossfadeSec * 1000;
     const intervalMs = 50; 
     const totalSteps = durationMs / intervalMs;
@@ -43,7 +42,6 @@ function startCrossfade() {
             renderPlaylist();
             updateStatus(`Sonando: ${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}`);
         } else {
-            // Curva lineal suave de volumen cruzado
             if (fadeOutPlayer && fadeOutPlayer.setVolume) {
                 fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
             }
