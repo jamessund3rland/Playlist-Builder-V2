@@ -26,22 +26,30 @@ function updateStatus(text) {
 }
 
 function renderPlaylist() {
-    console.log("--- DIAGNÓSTICO DE PLAYLIST ---");
-    console.log("videoList actual:", videoList);
+    let playlistEl = document.getElementById('playlist-container');
+    let countEl = document.getElementById('playlist-count');
     
-    const playlistEl = document.getElementById('playlist-container');
-    const countEl = document.getElementById('playlist-count');
-    
-    console.log("¿Existe playlist-container en el HTML?", !!playlistEl);
-    console.log("¿Existe playlist-count en el HTML?", !!countEl);
+    if (!playlistEl) {
+        playlistEl = document.createElement('div');
+        playlistEl.id = 'playlist-container';
+        playlistEl.style.position = 'fixed';
+        playlistEl.style.bottom = '20px';
+        playlistEl.style.right = '20px';
+        playlistEl.style.maxHeight = '300px';
+        playlistEl.style.overflowY = 'auto';
+        playlistEl.style.background = 'rgba(0,0,0,0.85)';
+        playlistEl.style.padding = '10px';
+        playlistEl.style.borderRadius = '8px';
+        playlistEl.style.zIndex = '9999';
+        playlistEl.style.width = '250px';
+        document.body.appendChild(playlistEl);
+    }
 
     if (countEl) {
         countEl.textContent = `Playlist (${videoList.length})`;
-    }
-    
-    if (!playlistEl) {
-        console.warn("ADVERTENCIA: No se encontró el elemento con id 'playlist-container' en el HTML.");
-        return;
+    } else {
+        const btnPlaylist = document.querySelector('[id*="playlist"], .playlist-btn, button');
+        if (btnPlaylist) btnPlaylist.textContent = `≡ Playlist (${videoList.length})`;
     }
     
     playlistEl.innerHTML = '';
@@ -54,6 +62,7 @@ function renderPlaylist() {
         item.style.background = index === currentIndex ? '#ff2a00' : '#222';
         item.style.color = '#fff';
         item.style.borderRadius = '4px';
+        item.style.fontSize = '12px';
         item.style.cursor = 'pointer';
         item.textContent = videoTitles[id] || `Track ${index + 1}`;
         playlistEl.appendChild(item);
@@ -111,6 +120,7 @@ function startPlaybackMonitor() {
     }, 1000);
 }
 
+// CROSSFADE SUAVE (Fundido cruzado de alta fluidez)
 function startCrossfade() {
     isCrossfading = true;
     const nextIndex = currentIndex + 1;
@@ -128,7 +138,7 @@ function startCrossfade() {
         fadeInDiv.style.zIndex = '2';
         fadeOutDiv.style.zIndex = '1';
         fadeInDiv.style.opacity = '1';
-        fadeInDiv.style.opacity = '0';
+        fadeOutDiv.style.opacity = '0';
     }
 
     if (fadeInPlayer && fadeInPlayer.loadVideoById) {
