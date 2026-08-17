@@ -1,28 +1,23 @@
-function startCrossfade() {
-    isCrossfading = true;
-    const nextIndex = currentIndex + 1;
+let videoIds = []; // <-- Asegúrate de que se llame videoIds (con i)
+let videoTitles = {};
+let crossfadeSec = 10;
+let currentIndex = 0;
 
-    const fadeOutPlayer = activePlayer === 'A' ? playerA : playerB;
-    const fadeInPlayer = activePlayer === 'A' ? playerB : playerA;
+let playerA, playerB;
+let activePlayer = 'A';
+let isCrossfading = false;
+let checkInterval = null;
 
-    const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
-    const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
+const urlParams = new URLSearchParams(window.location.search);
+const videosParam = urlParams.get('videos');
+const fadeParam = urlParams.get('crossfade');
 
-    const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
-    updateStatus(`Crossfade hacia: ${nextTitle}...`);
-
-    if (fadeOutDiv && fadeInDiv) {
-        fadeInDiv.style.zIndex = '2';
-        fadeOutDiv.style.zIndex = '1';
-        fadeInDiv.style.opacity = '1';
-        fadeOutDiv.style.opacity = '0';
-    }
-
-    if (fadeInPlayer && fadeInPlayer.loadVideoById) {
-        fadeInPlayer.setVolume(0);
-        fadeInPlayer.loadVideoById(videoList[nextIndex]);
-        fadeInPlayer.playVideo();
-    }
+if (videosParam) {
+    videoIds = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
+}
+if (fadeParam) {
+    crossfadeSec = parseInt(fadeParam, 10) || 10;
+}
 
     const durationMs = crossfadeSec * 1000;
     const intervalMs = 50; 
