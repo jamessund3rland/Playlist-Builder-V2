@@ -8,7 +8,7 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Captura de parámetros de la URL enviados por la extensión
+// Captura robusta de parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
 const fadeParam = urlParams.get('crossfade');
@@ -26,9 +26,11 @@ function updateStatus(text) {
 }
 
 function renderPlaylist() {
-    let playlistEl = document.getElementById('playlist-container');
-    let countEl = document.getElementById('playlist-count');
-    
+    // Buscar cualquier contenedor posible de la playlist en el HTML
+    let playlistEl = document.getElementById('playlist-container') || document.querySelector('.playlist-container') || document.getElementById('playlist');
+    let countEl = document.getElementById('playlist-count') || document.querySelector('#playlist-btn, [id*="playlist"]');
+
+    // Si no existe ningún contenedor en el HTML, lo creamos flotante
     if (!playlistEl) {
         playlistEl = document.createElement('div');
         playlistEl.id = 'playlist-container';
@@ -37,27 +39,33 @@ function renderPlaylist() {
         playlistEl.style.right = '20px';
         playlistEl.style.maxHeight = '300px';
         playlistEl.style.overflowY = 'auto';
-        playlistEl.style.background = 'rgba(0,0,0,0.85)';
-        playlistEl.style.padding = '10px';
+        playlistEl.style.background = 'rgba(0,0,0,0.9)';
+        playlistEl.style.padding = '12px';
         playlistEl.style.borderRadius = '8px';
-        playlistEl.style.zIndex = '9999';
-        playlistEl.style.width = '250px';
+        playlistEl.style.zIndex = '99999';
+        playlistEl.style.width = '260px';
+        playlistEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
         document.body.appendChild(playlistEl);
     }
 
     if (countEl) {
         countEl.textContent = `Playlist (${videoList.length})`;
     } else {
-        const btnPlaylist = document.querySelector('[id*="playlist"], .playlist-btn, button');
+        const btnPlaylist = document.querySelector('button, [id*="Playlist"]');
         if (btnPlaylist) btnPlaylist.textContent = `≡ Playlist (${videoList.length})`;
     }
     
     playlistEl.innerHTML = '';
     
+    if (videoList.length === 0) {
+        playlistEl.innerHTML = '<div style="color: #888; font-size: 12px; text-align: center; padding: 10px;">No hay videos en la playlist</div>';
+        return;
+    }
+
     videoList.forEach((id, index) => {
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
-        item.style.padding = '8px';
+        item.style.padding = '8px 10px';
         item.style.margin = '4px 0';
         item.style.background = index === currentIndex ? '#ff2a00' : '#222';
         item.style.color = '#fff';
@@ -65,6 +73,19 @@ function renderPlaylist() {
         item.style.fontSize = '12px';
         item.style.cursor = 'pointer';
         item.textContent = videoTitles[id] || `Track ${index + 1}`;
+        
+        // Permitir hacer clic en un track para saltar a él si se desea
+        item.addEventListener('click', () => {
+            currentIndex = index;
+            if (playerA && playerA.loadVideoById) {
+                playerA.loadVideoById(videoList[currentIndex]);
+                playerA.playVideo();
+                activePlayer = 'A';
+                renderPlaylist();
+                updateStatus(`Sonando: Track ${currentIndex + 1}`);
+            }
+        });
+
         playlistEl.appendChild(item);
     });
 }
@@ -73,6 +94,7 @@ function renderPlaylist() {
 function onYouTubeIframeAPIReady() {
     if (videoList.length === 0) {
         updateStatus("No se recibieron videos.");
+        renderPlaylist();
         return;
     }
 
@@ -89,6 +111,7 @@ function onYouTubeIframeAPIReady() {
                 e.target.setVolume(100);
                 e.target.playVideo();
                 startPlaybackMonitor();
+                renderPlaylist();
                 updateStatus(`Sonando: ${videoTitles[videoList[0]] || 'Track 1'}`);
             }
         }
