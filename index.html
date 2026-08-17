@@ -8,9 +8,15 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
         body, html { width: 100%; height: 100%; background: #000; overflow: hidden; color: #fff; }
         
-        #player-container { position: relative; width: 100vw; height: 100vh; }
+        #player-container { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh; 
+            z-index: 1; 
+        }
         
-        /* Permitir interactuar con los controles de YouTube */
         #playerA, #playerB { 
             position: absolute; 
             top: 0; 
@@ -21,35 +27,60 @@
             pointer-events: auto !important; 
         }
 
-        #controls-overlay { 
-            position: fixed; 
-            top: 20px; 
-            right: 20px; 
-            z-index: 9999; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: flex-end; 
-            gap: 10px; 
-            pointer-events: none; 
+        /* Barra superior de estado (no bloquea clics al reproductor) */
+        #top-status-bar {
+            position: fixed;
+            top: 15px;
+            left: 20px;
+            z-index: 9999;
+            pointer-events: none;
         }
-        
-        #status, #playlist-btn { pointer-events: auto; }
-        #status { background: rgba(0,0,0,0.7); padding: 6px 12px; border-radius: 20px; font-size: 12px; }
-        #playlist-btn { background: #ff2a00; color: #fff; border: none; padding: 10px 18px; border-radius: 20px; font-weight: bold; cursor: pointer; }
 
+        #status { 
+            background: rgba(0,0,0,0.75); 
+            padding: 6px 14px; 
+            border-radius: 20px; 
+            font-size: 12px; 
+            pointer-events: auto;
+            display: inline-block;
+        }
+
+        /* Contenedor del botón y la playlist alineado arriba a la derecha */
+        #playlist-wrapper {
+            position: fixed;
+            top: 15px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            pointer-events: none; /* Permite clickear el video fuera del botón y panel */
+        }
+
+        #playlist-btn { 
+            pointer-events: auto; 
+            background: #ff2a00; 
+            color: #fff; 
+            border: none; 
+            padding: 10px 18px; 
+            border-radius: 20px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        /* Panel desplegable justo debajo del botón */
         #playlist-container { 
-            position: fixed; 
-            bottom: 20px; 
-            right: 20px; 
-            width: 300px; 
-            max-height: 380px; 
+            pointer-events: auto;
+            width: 320px; 
+            max-height: calc(100vh - 80px); 
             background: rgba(18,18,18,0.95); 
             border-radius: 12px; 
             padding: 12px; 
-            z-index: 9998; 
             display: none; 
             flex-direction: column; 
-            pointer-events: auto;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.7);
         }
 
         #playlist-header { font-size: 11px; color: #aaa; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #333; }
@@ -70,7 +101,7 @@
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.4; }
 
-        /* Línea roja indicadora para arrastrar */
+        /* Línea roja indicadora de arrastre */
         .drop-indicator-above::before {
             content: '';
             position: absolute;
@@ -101,16 +132,18 @@
         <div id="playerB" style="opacity: 0;"></div>
     </div>
 
-    <div id="controls-overlay">
+    <div id="top-status-bar">
         <div id="status">Cargando reproductor...</div>
-        <button id="playlist-btn">≡ Playlist (0)</button>
     </div>
 
-    <div id="playlist-container">
-        <div id="playlist-header">
-            <span>Crossfade: <strong id="fade-info">10s</strong></span>
+    <div id="playlist-wrapper">
+        <button id="playlist-btn">≡ Playlist (0)</button>
+        <div id="playlist-container">
+            <div id="playlist-header">
+                <span>Crossfade: <strong id="fade-info">10s</strong></span>
+            </div>
+            <div id="playlist-items"></div>
         </div>
-        <div id="playlist-items"></div>
     </div>
 
     <script src="https://www.youtube.com/iframe_api"></script>
