@@ -1,4 +1,5 @@
 let videoList = [];
+let videoTitles = {};
 let crossfadeSec = 10;
 let currentIndex = 0;
 
@@ -7,9 +8,10 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Obtener parámetros de la URL
+// Obtener parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
+const titlesParam = urlParams.get('titles');
 const fadeParam = urlParams.get('crossfade');
 
 if (videosParam) {
@@ -17,6 +19,18 @@ if (videosParam) {
 }
 if (fadeParam) {
     crossfadeSec = parseInt(fadeParam, 10) || 10;
+}
+
+// Inicializar títulos desde marcadores si existen
+if (titlesParam) {
+    try {
+        const parsedTitles = JSON.parse(decodeURIComponent(titlesParam));
+        videoList.forEach((id, index) => {
+            if (parsedTitles[index]) videoTitles[id] = parsedTitles[index];
+        });
+    } catch (e) {
+        console.warn("No se pudieron parsear los títulos:", e);
+    }
 }
 
 const fadeInfoEl = document.getElementById('fade-info');
@@ -27,6 +41,24 @@ function updateStatus(text) {
     if (el) el.textContent = text;
 }
 
+// Obtener título real vía noembed si no está definido
+function fetchVideoTitle(id) {
+    if (videoTitles[id] && !videoTitles[id].startsWith('Video ID:')) return;
+
+    fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${id}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.title) {
+                videoTitles[id] = data.title;
+                renderPlaylist();
+            }
+        })
+        .catch(() => {
+            if (!videoTitles[id]) videoTitles[id] = `Video ID: ${id}`;
+        });
+}
+
+// Renderizar la lista e integrar Drag & Drop
 function renderPlaylist() {
     const container = document.getElementById('playlist-items');
     const badge = document.getElementById('count-badge');
@@ -36,16 +68,73 @@ function renderPlaylist() {
     container.innerHTML = '';
 
     videoList.forEach((id, index) => {
+        if (!videoTitles[id]) fetchVideoTitle(id);
+
+        const titleText = videoTitles[id] || `Cargando título (${id})...`;
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
-        item.onclick = () => playVideoAtIndex(index);
+        item.draggable = true;
+        item.dataset.index = index;
 
         item.innerHTML = `
+            <span class="drag-handle">⋮⋮</span>
             <span class="item-number">${index + 1}</span>
-            <span class="item-title">Video ID: ${id}</span>
+            <span class="item-title" title="${titleText}">${titleText}</span>
         `;
+
+        // Click para reproducir
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('drag-handle')) return;
+            playVideoAtIndex(index);
+        });
+
+        // Eventos Drag & Drop
+        item.addEventListener('dragstart', handleDragStart);
+        item.addEventListener('dragover', handleDragOver);
+        item.addEventListener('drop', handleDrop);
+        item.addEventListener('dragend', handleDragEnd);
+
         container.appendChild(item);
     });
+}
+
+// Lógica de Reordenamiento (Drag & Drop)
+let draggedIndex = null;
+
+function handleDragStart(e) {
+    draggedIndex = parseInt(this.dataset.index, 10);
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const targetIndex = parseInt(this.dataset.index, 10);
+
+    if (draggedIndex !== null && draggedIndex !== targetIndex) {
+        // Guardar el id sonando actualmente
+        const currentPlayingId = videoList[currentIndex];
+
+        // Mover elemento en el array
+        const movedItem = videoList.splice(draggedIndex, 1)[0];
+        videoList.splice(targetIndex, 0, movedItem);
+
+        // Actualizar el índice del video en reproducción
+        currentIndex = videoList.indexOf(currentPlayingId);
+
+        renderPlaylist();
+    }
+}
+
+function handleDragEnd() {
+    this.classList.remove('dragging');
+    draggedIndex = null;
 }
 
 const toggleBtn = document.getElementById('toggle-playlist-btn');
@@ -58,7 +147,7 @@ if (toggleBtn) {
 
 function onYouTubeIframeAPIReady() {
     if (!videoList || videoList.length === 0) {
-        updateStatus("Error: No se recibieron videos en la URL.");
+        updateStatus("Error: No se recibieron videos.");
         return;
     }
 
@@ -77,10 +166,7 @@ function onYouTubeIframeAPIReady() {
         height: '100%', width: '100%',
         videoId: videoList[0],
         playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0, 'playsinline': 1 },
-        events: {
-            'onReady': checkReady,
-            'onStateChange': onStateChangeA
-        }
+        events: { 'onReady': checkReady, 'onStateChange': onStateChangeA }
     });
 
     const secondVideo = videoList.length > 1 ? videoList[1] : videoList[0];
@@ -89,10 +175,7 @@ function onYouTubeIframeAPIReady() {
         height: '100%', width: '100%',
         videoId: secondVideo,
         playerVars: { 'autoplay': 0, 'controls': 1, 'rel': 0, 'playsinline': 1 },
-        events: {
-            'onReady': checkReady,
-            'onStateChange': onStateChangeB
-        }
+        events: { 'onReady': checkReady, 'onStateChange': onStateChangeB }
     });
 }
 
@@ -104,8 +187,6 @@ function playVideoAtIndex(index) {
     renderPlaylist();
 
     const currPlayer = activePlayer === 'A' ? playerA : playerB;
-    const nextPlayer = activePlayer === 'A' ? playerB : playerA;
-
     const currDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
     const nextDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
@@ -122,7 +203,8 @@ function playVideoAtIndex(index) {
         currPlayer.playVideo();
     }
 
-    updateStatus(`Sonando: Track ${currentIndex + 1} de ${videoList.length}`);
+    const currentTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
+    updateStatus(`Sonando: ${currentTitle}`);
 
     if (checkInterval) clearInterval(checkInterval);
     checkInterval = setInterval(checkTimeAndCrossfade, 500);
@@ -154,7 +236,8 @@ function startCrossfade() {
     const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
     const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
-    updateStatus(`Fundido cruzado hacia Track ${nextIndex + 1}...`);
+    const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
+    updateStatus(`Crossfade hacia: ${nextTitle}...`);
 
     if (fadeOutDiv && fadeInDiv) {
         fadeInDiv.style.zIndex = '2';
@@ -183,7 +266,7 @@ function startCrossfade() {
             currentIndex = nextIndex;
             isCrossfading = false;
             renderPlaylist();
-            updateStatus(`Sonando: Track ${currentIndex + 1} de ${videoList.length}`);
+            updateStatus(`Sonando: ${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}`);
         } else {
             if (fadeOutPlayer && fadeOutPlayer.setVolume) fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
             if (fadeInPlayer && fadeInPlayer.setVolume) fadeInPlayer.setVolume(Math.round(progress * 100));
