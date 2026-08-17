@@ -8,17 +8,22 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Captura robusta de parámetros URL
-const urlParams = new URLSearchParams(window.location.search);
-const videosParam = urlParams.get('videos');
-const fadeParam = urlParams.get('crossfade');
+// Función robusta para extraer los parámetros de la URL en cualquier momento
+function parseUrlParams() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const videosParam = urlParams.get('videos');
+    const fadeParam = urlParams.get('crossfade');
 
-if (videosParam) {
-    videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
+    if (videosParam) {
+        videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
+    }
+    if (fadeParam) {
+        crossfadeSec = parseInt(fadeParam, 10) || 10;
+    }
 }
-if (fadeParam) {
-    crossfadeSec = parseInt(fadeParam, 10) || 10;
-}
+
+// Ejecutar inmediatamente
+parseUrlParams();
 
 function updateStatus(text) {
     const el = document.getElementById('status');
@@ -26,11 +31,14 @@ function updateStatus(text) {
 }
 
 function renderPlaylist() {
-    // Buscar cualquier contenedor posible de la playlist en el HTML
-    let playlistEl = document.getElementById('playlist-container') || document.querySelector('.playlist-container') || document.getElementById('playlist');
+    // Vuelve a asegurar la lectura por si la URL tardó un instante en asentarse
+    if (videoList.length === 0) {
+        parseUrlParams();
+    }
+
+    let playlistEl = document.getElementById('playlist-container') || document.querySelector('.playlist-container');
     let countEl = document.getElementById('playlist-count') || document.querySelector('#playlist-btn, [id*="playlist"]');
 
-    // Si no existe ningún contenedor en el HTML, lo creamos flotante
     if (!playlistEl) {
         playlistEl = document.createElement('div');
         playlistEl.id = 'playlist-container';
@@ -58,7 +66,7 @@ function renderPlaylist() {
     playlistEl.innerHTML = '';
     
     if (videoList.length === 0) {
-        playlistEl.innerHTML = '<div style="color: #888; font-size: 12px; text-align: center; padding: 10px;">No hay videos en la playlist</div>';
+        playlistEl.innerHTML = '<div style="color: #ff2a00; font-size: 12px; text-align: center; padding: 10px; font-weight: bold;">Sin videos en la URL</div>';
         return;
     }
 
@@ -74,7 +82,6 @@ function renderPlaylist() {
         item.style.cursor = 'pointer';
         item.textContent = videoTitles[id] || `Track ${index + 1}`;
         
-        // Permitir hacer clic en un track para saltar a él si se desea
         item.addEventListener('click', () => {
             currentIndex = index;
             if (playerA && playerA.loadVideoById) {
@@ -92,9 +99,19 @@ function renderPlaylist() {
 
 // Inicializar YouTube IFrame API
 function onYouTubeIframeAPIReady() {
+    parseUrlParams();
+
     if (videoList.length === 0) {
-        updateStatus("No se recibieron videos.");
+        updateStatus("Esperando videos de la extensión...");
         renderPlaylist();
+        // Reintentar cada segundo por si la URL tardó en llegar
+        const waitInterval = setInterval(() => {
+            parseUrlParams();
+            if (videoList.length > 0) {
+                clearInterval(waitInterval);
+                onYouTubeIframeAPIReady();
+            }
+        }, 1000);
         return;
     }
 
@@ -143,7 +160,7 @@ function startPlaybackMonitor() {
     }, 1000);
 }
 
-// CROSSFADE SUAVE (Fundido cruzado de alta fluidez)
+// CROSSFADE SUAVE
 function startCrossfade() {
     isCrossfading = true;
     const nextIndex = currentIndex + 1;
