@@ -8,6 +8,7 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
+// Parseo de parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
 const titlesParam = urlParams.get('titles');
@@ -16,6 +17,17 @@ const fadeParam = urlParams.get('crossfade');
 if (videosParam) {
     videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
 }
+
+// Fallback de demostración si la URL se abre vacía sin parámetros
+if (videoList.length === 0) {
+    videoList = ['jfKfPfyJRdk', '5qap5aO4i9A', 'DWuZBoX61XU'];
+    videoTitles = {
+        'jfKfPfyJRdk': 'Lofi Hip Hop Radio - Beats to Relax/Study',
+        '5qap5aO4i9A': 'Lofi Chill Beats',
+        'DWuZBoX61XU': 'Relaxing Jazz Music'
+    };
+}
+
 if (titlesParam) {
     try {
         videoTitles = JSON.parse(decodeURIComponent(titlesParam));
@@ -39,7 +51,8 @@ function setupEvents() {
     if (btn && container) {
         btn.onclick = (e) => {
             e.stopPropagation();
-            container.style.display = (container.style.display === 'none' || container.style.display === '') ? 'flex' : 'none';
+            const isHidden = container.style.display === 'none' || container.style.display === '';
+            container.style.display = isHidden ? 'flex' : 'none';
         };
     }
 }
@@ -70,12 +83,11 @@ function renderPlaylist() {
         item.draggable = true;
         item.dataset.index = index;
 
-        // Clic para cambiar de canción
         item.onclick = (e) => {
             if (item.classList.contains('dragging')) return;
             currentIndex = index;
             const targetPlayer = activePlayer === 'A' ? playerA : playerB;
-            if (targetPlayer && targetPlayer.loadVideoById) {
+            if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
                 targetPlayer.loadVideoById(videoList[currentIndex]);
                 targetPlayer.playVideo();
                 renderPlaylist();
@@ -83,7 +95,7 @@ function renderPlaylist() {
             }
         };
 
-        // Eventos Drag and Drop con Línea Roja
+        // Arrastrar y soltar con línea roja
         item.addEventListener('dragstart', (e) => {
             draggedIndex = index;
             item.classList.add('dragging');
@@ -143,24 +155,31 @@ function onYouTubeIframeAPIReady() {
     setupEvents();
     renderPlaylist();
 
-    if (videoList.length === 0) {
-        updateStatus("No se recibieron videos.");
-        return;
-    }
-
     updateStatus("Cargando reproductor...");
+
+    const origin = window.location.origin;
 
     playerA = new YT.Player('playerA', {
         height: '100%',
         width: '100%',
         videoId: videoList[0],
-        playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0, 'iv_load_policy': 3 },
+        playerVars: { 
+            'autoplay': 1, 
+            'controls': 1, 
+            'rel': 0, 
+            'iv_load_policy': 3,
+            'origin': origin 
+        },
         events: {
             'onReady': (e) => {
                 e.target.setVolume(100);
                 e.target.playVideo();
                 startPlaybackMonitor();
                 updateStatus(`Sonando: ${videoTitles[videoList[0]] || 'Track 1'}`);
+            },
+            'onError': (e) => {
+                console.error("Error en Player A:", e.data);
+                updateStatus("Error al cargar video de YouTube");
             }
         }
     });
@@ -168,7 +187,13 @@ function onYouTubeIframeAPIReady() {
     playerB = new YT.Player('playerB', {
         height: '100%',
         width: '100%',
-        playerVars: { 'autoplay': 0, 'controls': 1, 'rel': 0, 'iv_load_policy': 3 }
+        playerVars: { 
+            'autoplay': 0, 
+            'controls': 1, 
+            'rel': 0, 
+            'iv_load_policy': 3,
+            'origin': origin 
+        }
     });
 }
 
@@ -212,7 +237,7 @@ function startCrossfade() {
         fadeOutDiv.style.opacity = '0';
     }
 
-    if (fadeInPlayer && fadeInPlayer.loadVideoById) {
+    if (fadeInPlayer && typeof fadeInPlayer.loadVideoById === 'function') {
         fadeInPlayer.setVolume(0);
         fadeInPlayer.loadVideoById(videoList[nextIndex]);
         fadeInPlayer.playVideo();
@@ -229,15 +254,15 @@ function startCrossfade() {
 
         if (progress >= 1) {
             clearInterval(fadeInterval);
-            if (fadeOutPlayer && fadeOutPlayer.stopVideo) fadeOutPlayer.stopVideo();
+            if (fadeOutPlayer && typeof fadeOutPlayer.stopVideo === 'function') fadeOutPlayer.stopVideo();
             activePlayer = activePlayer === 'A' ? 'B' : 'A';
             currentIndex = nextIndex;
             isCrossfading = false;
             renderPlaylist();
             updateStatus(`Sonando: ${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}`);
         } else {
-            if (fadeOutPlayer && fadeOutPlayer.setVolume) fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
-            if (fadeInPlayer && fadeInPlayer.setVolume) fadeInPlayer.setVolume(Math.round(progress * 100));
+            if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
+            if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * 100));
         }
     }, intervalMs);
 }
