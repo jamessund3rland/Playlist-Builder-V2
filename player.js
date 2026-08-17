@@ -37,14 +37,17 @@ function setupEvents() {
     const container = document.getElementById('playlist-container');
 
     if (btn && container) {
-        btn.onclick = () => {
-            if (container.style.display === 'none' || container.style.display === '') {
-                container.style.display = 'flex';
-            } else {
-                container.style.display = 'none';
-            }
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            container.style.display = (container.style.display === 'none' || container.style.display === '') ? 'flex' : 'none';
         };
     }
+}
+
+function clearIndicators() {
+    document.querySelectorAll('.playlist-item').forEach(el => {
+        el.classList.remove('drop-indicator-above', 'drop-indicator-below');
+    });
 }
 
 function renderPlaylist() {
@@ -58,12 +61,18 @@ function renderPlaylist() {
     if (!container) return;
     container.innerHTML = '';
 
+    let draggedIndex = null;
+
     videoList.forEach((id, index) => {
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
-        item.textContent = videoTitles[id] || `Track ${index + 1}`;
-        
-        item.onclick = () => {
+        item.textContent = `${index + 1}. ${videoTitles[id] || `Track ${index + 1}`}`;
+        item.draggable = true;
+        item.dataset.index = index;
+
+        // Clic para cambiar de canción
+        item.onclick = (e) => {
+            if (item.classList.contains('dragging')) return;
             currentIndex = index;
             const targetPlayer = activePlayer === 'A' ? playerA : playerB;
             if (targetPlayer && targetPlayer.loadVideoById) {
@@ -73,6 +82,58 @@ function renderPlaylist() {
                 updateStatus(`Sonando: ${videoTitles[id] || `Track ${index + 1}`}`);
             }
         };
+
+        // Eventos Drag and Drop con Línea Roja
+        item.addEventListener('dragstart', (e) => {
+            draggedIndex = index;
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+            clearIndicators();
+        });
+
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            clearIndicators();
+
+            const rect = item.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+
+            if (e.clientY < midpoint) {
+                item.classList.add('drop-indicator-above');
+            } else {
+                item.classList.add('drop-indicator-below');
+            }
+        });
+
+        item.addEventListener('dragleave', () => {
+            item.classList.remove('drop-indicator-above', 'drop-indicator-below');
+        });
+
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            clearIndicators();
+
+            const targetIndex = parseInt(item.dataset.index, 10);
+            if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+            const rect = item.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+            let newIndex = e.clientY < midpoint ? targetIndex : targetIndex + 1;
+
+            if (draggedIndex < newIndex) newIndex--;
+
+            const currentTrackId = videoList[currentIndex];
+            const movedItem = videoList.splice(draggedIndex, 1)[0];
+            videoList.splice(newIndex, 0, movedItem);
+
+            currentIndex = videoList.indexOf(currentTrackId);
+            renderPlaylist();
+        });
 
         container.appendChild(item);
     });
@@ -142,7 +203,11 @@ function startCrossfade() {
 
     if (fadeOutDiv && fadeInDiv) {
         fadeInDiv.style.zIndex = '2';
+        fadeInDiv.style.pointerEvents = 'auto';
+        
         fadeOutDiv.style.zIndex = '1';
+        fadeOutDiv.style.pointerEvents = 'none';
+
         fadeInDiv.style.opacity = '1';
         fadeOutDiv.style.opacity = '0';
     }
