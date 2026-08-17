@@ -3,34 +3,36 @@ let crossfadeSec = 10;
 let currentIndex = 0;
 
 let playerA, playerB;
-let activePlayer = 'A'; // 'A' o 'B'
+let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Parámetros de la URL
+// Obtener parámetros de la URL
 const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
 const fadeParam = urlParams.get('crossfade');
 
 if (videosParam) {
-    videoList = videosParam.split(',').filter(id => id.trim() !== '');
+    videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
 }
 if (fadeParam) {
     crossfadeSec = parseInt(fadeParam, 10) || 10;
 }
 
-document.getElementById('fade-info').textContent = `Crossfade: ${crossfadeSec}s`;
+const fadeInfoEl = document.getElementById('fade-info');
+if (fadeInfoEl) fadeInfoEl.textContent = `Crossfade: ${crossfadeSec}s`;
 
 function updateStatus(text) {
     const el = document.getElementById('status');
     if (el) el.textContent = text;
 }
 
-// Renderizar la lista de reproducción en el panel lateral
 function renderPlaylist() {
     const container = document.getElementById('playlist-items');
     const badge = document.getElementById('count-badge');
-    badge.textContent = videoList.length;
+    if (badge) badge.textContent = videoList.length;
+    if (!container) return;
+
     container.innerHTML = '';
 
     videoList.forEach((id, index) => {
@@ -46,20 +48,22 @@ function renderPlaylist() {
     });
 }
 
-// Alternar apertura del panel de Playlist
-document.getElementById('toggle-playlist-btn').addEventListener('click', () => {
-    document.getElementById('playlist-panel').classList.toggle('open');
-});
+const toggleBtn = document.getElementById('toggle-playlist-btn');
+if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+        const panel = document.getElementById('playlist-panel');
+        if (panel) panel.classList.toggle('open');
+    });
+}
 
-// Inicialización de la API oficial de YouTube
 function onYouTubeIframeAPIReady() {
-    if (videoList.length === 0) {
-        updateStatus("Error: No se recibieron videos.");
+    if (!videoList || videoList.length === 0) {
+        updateStatus("Error: No se recibieron videos en la URL.");
         return;
     }
 
     renderPlaylist();
-    updateStatus("Cargando reproductores...");
+    updateStatus(`Cargando ${videoList.length} videos...`);
 
     let readyCount = 0;
     function checkReady() {
@@ -72,16 +76,18 @@ function onYouTubeIframeAPIReady() {
     playerA = new YT.Player('playerA', {
         height: '100%', width: '100%',
         videoId: videoList[0],
-        playerVars: { 'autoplay': 0, 'controls': 1, 'rel': 0, 'playsinline': 1 },
+        playerVars: { 'autoplay': 1, 'controls': 1, 'rel': 0, 'playsinline': 1 },
         events: {
             'onReady': checkReady,
             'onStateChange': onStateChangeA
         }
     });
 
+    const secondVideo = videoList.length > 1 ? videoList[1] : videoList[0];
+
     playerB = new YT.Player('playerB', {
         height: '100%', width: '100%',
-        videoId: videoList[1] || videoList[0],
+        videoId: secondVideo,
         playerVars: { 'autoplay': 0, 'controls': 1, 'rel': 0, 'playsinline': 1 },
         events: {
             'onReady': checkReady,
@@ -103,19 +109,21 @@ function playVideoAtIndex(index) {
     const currDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
     const nextDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
-    // Restablecer capas y volúmenes
-    currDiv.style.opacity = '1';
-    currDiv.style.zIndex = '2';
-    nextDiv.style.opacity = '0';
-    nextDiv.style.zIndex = '1';
+    if (currDiv && nextDiv) {
+        currDiv.style.opacity = '1';
+        currDiv.style.zIndex = '2';
+        nextDiv.style.opacity = '0';
+        nextDiv.style.zIndex = '1';
+    }
 
-    currPlayer.setVolume(100);
-    currPlayer.loadVideoById(videoList[currentIndex]);
-    currPlayer.playVideo();
+    if (currPlayer && currPlayer.loadVideoById) {
+        currPlayer.setVolume(100);
+        currPlayer.loadVideoById(videoList[currentIndex]);
+        currPlayer.playVideo();
+    }
 
     updateStatus(`Sonando: Track ${currentIndex + 1} de ${videoList.length}`);
 
-    // Monitorear el tiempo restante para iniciar el Crossfade
     if (checkInterval) clearInterval(checkInterval);
     checkInterval = setInterval(checkTimeAndCrossfade, 500);
 }
@@ -148,18 +156,19 @@ function startCrossfade() {
 
     updateStatus(`Fundido cruzado hacia Track ${nextIndex + 1}...`);
 
-    // Preparar el siguiente reproductor detrás
-    fadeInDiv.style.zIndex = '2';
-    fadeOutDiv.style.zIndex = '1';
+    if (fadeOutDiv && fadeInDiv) {
+        fadeInDiv.style.zIndex = '2';
+        fadeOutDiv.style.zIndex = '1';
+        fadeInDiv.style.opacity = '1';
+        fadeOutDiv.style.opacity = '0';
+    }
 
-    fadeInPlayer.setVolume(0);
-    fadeInPlayer.loadVideoById(videoList[nextIndex]);
-    fadeInPlayer.playVideo();
+    if (fadeInPlayer && fadeInPlayer.loadVideoById) {
+        fadeInPlayer.setVolume(0);
+        fadeInPlayer.loadVideoById(videoList[nextIndex]);
+        fadeInPlayer.playVideo();
+    }
 
-    fadeInDiv.style.opacity = '1';
-    fadeOutDiv.style.opacity = '0';
-
-    // Rampa de volumen gradual durante los segundos asignados
     let steps = crossfadeSec * 10;
     let currentStep = 0;
 
@@ -169,15 +178,15 @@ function startCrossfade() {
 
         if (progress >= 1) {
             clearInterval(fadeInterval);
-            fadeOutPlayer.stopVideo();
+            if (fadeOutPlayer && fadeOutPlayer.stopVideo) fadeOutPlayer.stopVideo();
             activePlayer = activePlayer === 'A' ? 'B' : 'A';
             currentIndex = nextIndex;
             isCrossfading = false;
             renderPlaylist();
             updateStatus(`Sonando: Track ${currentIndex + 1} de ${videoList.length}`);
         } else {
-            fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
-            fadeInPlayer.setVolume(Math.round(progress * 100));
+            if (fadeOutPlayer && fadeOutPlayer.setVolume) fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
+            if (fadeInPlayer && fadeInPlayer.setVolume) fadeInPlayer.setVolume(Math.round(progress * 100));
         }
     }, 100);
 }
