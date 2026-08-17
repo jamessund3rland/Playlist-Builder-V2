@@ -1,12 +1,49 @@
+let videoList = [];
+let videoTitles = {};
+let crossfadeSec = 10;
+let currentIndex = 0;
+
+let playerA, playerB;
+let activePlayer = 'A';
+let isCrossfading = false;
+let checkInterval = null;
+
+// Captura de parámetros de la URL enviados por la extensión
+const urlParams = new URLSearchParams(window.location.search);
+const videosParam = urlParams.get('videos');
+const fadeParam = urlParams.get('crossfade');
+
+if (videosParam) {
+    videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
+}
+if (fadeParam) {
+    crossfadeSec = parseInt(fadeParam, 10) || 10;
+}
+
+function updateStatus(text) {
+    const el = document.getElementById('status');
+    if (el) el.textContent = text;
+}
+
 function renderPlaylist() {
+    console.log("--- DIAGNÓSTICO DE PLAYLIST ---");
+    console.log("videoList actual:", videoList);
+    
     const playlistEl = document.getElementById('playlist-container');
     const countEl = document.getElementById('playlist-count');
     
+    console.log("¿Existe playlist-container en el HTML?", !!playlistEl);
+    console.log("¿Existe playlist-count en el HTML?", !!countEl);
+
     if (countEl) {
         countEl.textContent = `Playlist (${videoList.length})`;
     }
     
-    if (!playlistEl) return;
+    if (!playlistEl) {
+        console.warn("ADVERTENCIA: No se encontró el elemento con id 'playlist-container' en el HTML.");
+        return;
+    }
+    
     playlistEl.innerHTML = '';
     
     videoList.forEach((id, index) => {
@@ -15,9 +52,115 @@ function renderPlaylist() {
         item.style.padding = '8px';
         item.style.margin = '4px 0';
         item.style.background = index === currentIndex ? '#ff2a00' : '#222';
+        item.style.color = '#fff';
         item.style.borderRadius = '4px';
         item.style.cursor = 'pointer';
         item.textContent = videoTitles[id] || `Track ${index + 1}`;
         playlistEl.appendChild(item);
     });
+}
+
+// Inicializar YouTube IFrame API
+function onYouTubeIframeAPIReady() {
+    if (videoList.length === 0) {
+        updateStatus("No se recibieron videos.");
+        return;
+    }
+
+    updateStatus("Cargando reproductor...");
+    renderPlaylist();
+
+    playerA = new YT.Player('playerA', {
+        height: '100%',
+        width: '100%',
+        videoId: videoList[0],
+        playerVars: { 'autoplay': 1, 'controls': 0, 'rel': 0, 'iv_load_policy': 3 },
+        events: {
+            'onReady': (e) => {
+                e.target.setVolume(100);
+                e.target.playVideo();
+                startPlaybackMonitor();
+                updateStatus(`Sonando: ${videoTitles[videoList[0]] || 'Track 1'}`);
+            }
+        }
+    });
+
+    playerB = new YT.Player('playerB', {
+        height: '100%',
+        width: '100%',
+        playerVars: { 'autoplay': 0, 'controls': 0, 'rel': 0, 'iv_load_policy': 3 }
+    });
+}
+
+function startPlaybackMonitor() {
+    if (checkInterval) clearInterval(checkInterval);
+
+    checkInterval = setInterval(() => {
+        const currentPlayer = activePlayer === 'A' ? playerA : playerB;
+        if (!currentPlayer || typeof currentPlayer.getCurrentTime !== 'function' || typeof currentPlayer.getDuration !== 'function') return;
+
+        const currentTime = currentPlayer.getCurrentTime();
+        const duration = currentPlayer.getDuration();
+
+        if (duration > 0 && !isCrossfading) {
+            const timeLeft = duration - currentTime;
+            if (timeLeft <= crossfadeSec && currentIndex < videoList.length - 1) {
+                startCrossfade();
+            }
+        }
+    }, 1000);
+}
+
+function startCrossfade() {
+    isCrossfading = true;
+    const nextIndex = currentIndex + 1;
+
+    const fadeOutPlayer = activePlayer === 'A' ? playerA : playerB;
+    const fadeInPlayer = activePlayer === 'A' ? playerB : playerA;
+
+    const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
+    const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
+
+    const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
+    updateStatus(`Crossfade hacia: ${nextTitle}...`);
+
+    if (fadeOutDiv && fadeInDiv) {
+        fadeInDiv.style.zIndex = '2';
+        fadeOutDiv.style.zIndex = '1';
+        fadeInDiv.style.opacity = '1';
+        fadeInDiv.style.opacity = '0';
+    }
+
+    if (fadeInPlayer && fadeInPlayer.loadVideoById) {
+        fadeInPlayer.setVolume(0);
+        fadeInPlayer.loadVideoById(videoList[nextIndex]);
+        fadeInPlayer.playVideo();
+    }
+
+    const durationMs = crossfadeSec * 1000;
+    const intervalMs = 50; 
+    const totalSteps = durationMs / intervalMs;
+    let currentStep = 0;
+
+    let fadeInterval = setInterval(() => {
+        currentStep++;
+        let progress = currentStep / totalSteps;
+
+        if (progress >= 1) {
+            clearInterval(fadeInterval);
+            if (fadeOutPlayer && fadeOutPlayer.stopVideo) fadeOutPlayer.stopVideo();
+            activePlayer = activePlayer === 'A' ? 'B' : 'A';
+            currentIndex = nextIndex;
+            isCrossfading = false;
+            renderPlaylist();
+            updateStatus(`Sonando: ${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}`);
+        } else {
+            if (fadeOutPlayer && fadeOutPlayer.setVolume) {
+                fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
+            }
+            if (fadeInPlayer && fadeInPlayer.setVolume) {
+                fadeInPlayer.setVolume(Math.round(progress * 100));
+            }
+        }
+    }, intervalMs);
 }
