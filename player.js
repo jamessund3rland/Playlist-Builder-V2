@@ -8,7 +8,7 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Función robusta para extraer los parámetros de la URL en cualquier momento
+// Capturar parámetros de la URL
 function parseUrlParams() {
     const urlParams = new URLSearchParams(window.location.search);
     const videosParam = urlParams.get('videos');
@@ -22,7 +22,6 @@ function parseUrlParams() {
     }
 }
 
-// Ejecutar inmediatamente
 parseUrlParams();
 
 function updateStatus(text) {
@@ -30,58 +29,62 @@ function updateStatus(text) {
     if (el) el.textContent = text;
 }
 
+// Configurar el comportamiento del botón original para mostrar/ocultar la playlist
+function setupPlaylistToggle() {
+    const playlistBtn = document.getElementById('playlist-btn') || document.querySelector('.playlist-btn') || document.querySelector('button[id*="playlist"]');
+    const playlistContainer = document.getElementById('playlist-container') || document.querySelector('.playlist-container');
+
+    if (playlistBtn && playlistContainer) {
+        // Asegurar que responda al clic para alternar visibilidad
+        playlistBtn.onclick = (e) => {
+            e.preventDefault();
+            if (playlistContainer.style.display === 'none' || playlistContainer.style.visibility === 'hidden') {
+                playlistContainer.style.display = 'block';
+                playlistContainer.style.visibility = 'visible';
+            } else {
+                playlistContainer.style.display = 'none';
+            }
+        };
+    }
+}
+
 function renderPlaylist() {
-    // Vuelve a asegurar la lectura por si la URL tardó un instante en asentarse
-    if (videoList.length === 0) {
-        parseUrlParams();
-    }
+    if (videoList.length === 0) parseUrlParams();
 
-    let playlistEl = document.getElementById('playlist-container') || document.querySelector('.playlist-container');
-    let countEl = document.getElementById('playlist-count') || document.querySelector('#playlist-btn, [id*="playlist"]');
+    // Buscar los elementos originales del HTML
+    const playlistEl = document.getElementById('playlist-container') || document.querySelector('.playlist-container');
+    const countEl = document.getElementById('playlist-count') || document.querySelector('#playlist-btn');
+    const fadeInfoEl = document.getElementById('fade-info') || document.getElementById('crossfade-duration');
 
-    if (!playlistEl) {
-        playlistEl = document.createElement('div');
-        playlistEl.id = 'playlist-container';
-        playlistEl.style.position = 'fixed';
-        playlistEl.style.bottom = '20px';
-        playlistEl.style.right = '20px';
-        playlistEl.style.maxHeight = '300px';
-        playlistEl.style.overflowY = 'auto';
-        playlistEl.style.background = 'rgba(0,0,0,0.9)';
-        playlistEl.style.padding = '12px';
-        playlistEl.style.borderRadius = '8px';
-        playlistEl.style.zIndex = '99999';
-        playlistEl.style.width = '260px';
-        playlistEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
-        document.body.appendChild(playlistEl);
-    }
-
+    // Actualizar contador en el botón original
     if (countEl) {
-        countEl.textContent = `Playlist (${videoList.length})`;
-    } else {
-        const btnPlaylist = document.querySelector('button, [id*="Playlist"]');
-        if (btnPlaylist) btnPlaylist.textContent = `≡ Playlist (${videoList.length})`;
+        // Si el botón contiene texto estructurado, actualizamos solo el número o el texto manteniendo su formato
+        if (countEl.tagName === 'BUTTON' || countEl.id === 'playlist-btn') {
+            countEl.innerHTML = `≡ Playlist (${videoList.length})`;
+        } else {
+            countEl.textContent = `Playlist (${videoList.length})`;
+        }
     }
+
+    // Mostrar los segundos de crossfade si existe el elemento en el HTML
+    if (fadeInfoEl) {
+        fadeInfoEl.textContent = `${crossfadeSec}s`;
+    }
+
+    if (!playlistEl) return;
     
     playlistEl.innerHTML = '';
     
-    if (videoList.length === 0) {
-        playlistEl.innerHTML = '<div style="color: #ff2a00; font-size: 12px; text-align: center; padding: 10px; font-weight: bold;">Sin videos en la URL</div>';
-        return;
-    }
-
     videoList.forEach((id, index) => {
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
-        item.style.padding = '8px 10px';
-        item.style.margin = '4px 0';
-        item.style.background = index === currentIndex ? '#ff2a00' : '#222';
-        item.style.color = '#fff';
-        item.style.borderRadius = '4px';
-        item.style.fontSize = '12px';
         item.style.cursor = 'pointer';
-        item.textContent = videoTitles[id] || `Track ${index + 1}`;
         
+        // Usar el título real si la extensión lo envió o un nombre descriptivo
+        const titleText = videoTitles[id] || `Track ${index + 1} (${id})`;
+        item.textContent = titleText;
+        
+        // Permitir clic para saltar al track
         item.addEventListener('click', () => {
             currentIndex = index;
             if (playerA && playerA.loadVideoById) {
@@ -89,12 +92,14 @@ function renderPlaylist() {
                 playerA.playVideo();
                 activePlayer = 'A';
                 renderPlaylist();
-                updateStatus(`Sonando: Track ${currentIndex + 1}`);
+                updateStatus(`Sonando: ${titleText}`);
             }
         });
 
         playlistEl.appendChild(item);
     });
+
+    setupPlaylistToggle();
 }
 
 // Inicializar YouTube IFrame API
@@ -102,9 +107,8 @@ function onYouTubeIframeAPIReady() {
     parseUrlParams();
 
     if (videoList.length === 0) {
-        updateStatus("Esperando videos de la extensión...");
+        updateStatus("Esperando videos...");
         renderPlaylist();
-        // Reintentar cada segundo por si la URL tardó en llegar
         const waitInterval = setInterval(() => {
             parseUrlParams();
             if (videoList.length > 0) {
@@ -178,7 +182,7 @@ function startCrossfade() {
         fadeInDiv.style.zIndex = '2';
         fadeOutDiv.style.zIndex = '1';
         fadeInDiv.style.opacity = '1';
-        fadeOutDiv.style.opacity = '0';
+        fadeInDiv.style.opacity = '0';
     }
 
     if (fadeInPlayer && fadeInPlayer.loadVideoById) {
