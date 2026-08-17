@@ -29,7 +29,7 @@
         #playerA { z-index: 2; pointer-events: auto; }
         #playerB { z-index: 1; pointer-events: none; opacity: 0; }
 
-        /* Barra superior de estado */
+        /* Estado superior */
         #top-status-bar {
             position: fixed;
             top: 15px;
@@ -39,15 +39,16 @@
         }
 
         #status { 
-            background: rgba(0,0,0,0.75); 
-            padding: 6px 14px; 
+            background: rgba(0,0,0,0.85); 
+            padding: 8px 16px; 
             border-radius: 20px; 
-            font-size: 12px; 
+            font-size: 13px; 
             pointer-events: auto;
             display: inline-block;
+            border: 1px solid #333;
         }
 
-        /* Contenedor flotante a la derecha */
+        /* Contenedor del botón y panel a la derecha */
         #playlist-wrapper {
             position: fixed;
             top: 15px;
@@ -72,12 +73,13 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
-        /* Playlist posicionada exactamente DEBAJO del botón */
+        /* Playlist desplegable debajo del botón */
         #playlist-container { 
             pointer-events: auto;
-            width: 320px; 
+            width: 340px; 
             max-height: calc(100vh - 80px); 
             background: rgba(18,18,18,0.95); 
+            border: 1px solid #333;
             border-radius: 12px; 
             padding: 12px; 
             display: none; 
@@ -86,7 +88,7 @@
         }
 
         #playlist-header { font-size: 11px; color: #aaa; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #333; }
-        #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+        #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; }
 
         .playlist-item { 
             background: #282828; 
@@ -100,14 +102,15 @@
             transition: background 0.2s;
         }
         
+        .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
 
-        /* Estilo de la Línea Roja de posición al arrastrar */
+        /* Línea roja indicadora de soltar el track */
         .drop-indicator-above::before {
             content: '';
             position: absolute;
-            top: -3px;
+            top: -4px;
             left: 0;
             right: 0;
             height: 4px;
@@ -119,7 +122,7 @@
         .drop-indicator-below::after {
             content: '';
             position: absolute;
-            bottom: -3px;
+            bottom: -4px;
             left: 0;
             right: 0;
             height: 4px;
@@ -137,7 +140,7 @@
     </div>
 
     <div id="top-status-bar">
-        <div id="status">Cargando reproductor...</div>
+        <div id="status">Inicializando...</div>
     </div>
 
     <div id="playlist-wrapper">
