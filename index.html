@@ -24,10 +24,12 @@
             width: 100%; 
             height: 100%; 
             border: none; 
-            pointer-events: auto !important; 
         }
 
-        /* Barra superior de estado (no bloquea clics al reproductor) */
+        #playerA { z-index: 2; pointer-events: auto; }
+        #playerB { z-index: 1; pointer-events: none; opacity: 0; }
+
+        /* Barra superior de estado */
         #top-status-bar {
             position: fixed;
             top: 15px;
@@ -45,7 +47,7 @@
             display: inline-block;
         }
 
-        /* Contenedor del botón y la playlist alineado arriba a la derecha */
+        /* Contenedor flotante a la derecha */
         #playlist-wrapper {
             position: fixed;
             top: 15px;
@@ -55,7 +57,7 @@
             flex-direction: column;
             align-items: flex-end;
             gap: 8px;
-            pointer-events: none; /* Permite clickear el video fuera del botón y panel */
+            pointer-events: none;
         }
 
         #playlist-btn { 
@@ -70,7 +72,7 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
-        /* Panel desplegable justo debajo del botón */
+        /* Playlist posicionada exactamente DEBAJO del botón */
         #playlist-container { 
             pointer-events: auto;
             width: 320px; 
@@ -99,37 +101,39 @@
         }
         
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
-        .playlist-item.dragging { opacity: 0.4; }
+        .playlist-item.dragging { opacity: 0.3; }
 
-        /* Línea roja indicadora de arrastre */
+        /* Estilo de la Línea Roja de posición al arrastrar */
         .drop-indicator-above::before {
             content: '';
             position: absolute;
-            top: -4px;
+            top: -3px;
             left: 0;
             right: 0;
-            height: 3px;
+            height: 4px;
             background-color: #ff2a00;
-            box-shadow: 0 0 6px #ff2a00;
-            z-index: 10;
+            box-shadow: 0 0 8px #ff2a00;
+            z-index: 100;
+            border-radius: 2px;
         }
         .drop-indicator-below::after {
             content: '';
             position: absolute;
-            bottom: -4px;
+            bottom: -3px;
             left: 0;
             right: 0;
-            height: 3px;
+            height: 4px;
             background-color: #ff2a00;
-            box-shadow: 0 0 6px #ff2a00;
-            z-index: 10;
+            box-shadow: 0 0 8px #ff2a00;
+            z-index: 100;
+            border-radius: 2px;
         }
     </style>
 </head>
 <body>
     <div id="player-container">
         <div id="playerA"></div>
-        <div id="playerB" style="opacity: 0;"></div>
+        <div id="playerB"></div>
     </div>
 
     <div id="top-status-bar">
