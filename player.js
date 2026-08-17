@@ -11,7 +11,6 @@ let checkInterval = null;
 // Obtener parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
-const titlesParam = urlParams.get('titles');
 const fadeParam = urlParams.get('crossfade');
 
 if (videosParam) {
@@ -19,18 +18,6 @@ if (videosParam) {
 }
 if (fadeParam) {
     crossfadeSec = parseInt(fadeParam, 10) || 10;
-}
-
-// Inicializar títulos desde marcadores si existen
-if (titlesParam) {
-    try {
-        const parsedTitles = JSON.parse(decodeURIComponent(titlesParam));
-        videoList.forEach((id, index) => {
-            if (parsedTitles[index]) videoTitles[id] = parsedTitles[index];
-        });
-    } catch (e) {
-        console.warn("No se pudieron parsear los títulos:", e);
-    }
 }
 
 const fadeInfoEl = document.getElementById('fade-info');
@@ -41,9 +28,8 @@ function updateStatus(text) {
     if (el) el.textContent = text;
 }
 
-// Obtener título real vía noembed si no está definido
 function fetchVideoTitle(id) {
-    if (videoTitles[id] && !videoTitles[id].startsWith('Video ID:')) return;
+    if (videoTitles[id]) return;
 
     fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${id}`)
         .then(res => res.json())
@@ -58,7 +44,6 @@ function fetchVideoTitle(id) {
         });
 }
 
-// Renderizar la lista e integrar Drag & Drop
 function renderPlaylist() {
     const container = document.getElementById('playlist-items');
     const badge = document.getElementById('count-badge');
@@ -82,15 +67,15 @@ function renderPlaylist() {
             <span class="item-title" title="${titleText}">${titleText}</span>
         `;
 
-        // Click para reproducir
         item.addEventListener('click', (e) => {
             if (e.target.classList.contains('drag-handle')) return;
             playVideoAtIndex(index);
         });
 
-        // Eventos Drag & Drop
+        // Eventos Drag and Drop con indicador de línea roja
         item.addEventListener('dragstart', handleDragStart);
         item.addEventListener('dragover', handleDragOver);
+        item.addEventListener('dragleave', handleDragLeave);
         item.addEventListener('drop', handleDrop);
         item.addEventListener('dragend', handleDragEnd);
 
@@ -98,8 +83,9 @@ function renderPlaylist() {
     });
 }
 
-// Lógica de Reordenamiento (Drag & Drop)
+// Variables e indicadores para Drag and Drop
 let draggedIndex = null;
+let dropPosition = 'top'; // 'top' o 'bottom'
 
 function handleDragStart(e) {
     draggedIndex = parseInt(this.dataset.index, 10);
@@ -110,22 +96,46 @@ function handleDragStart(e) {
 function handleDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
+    const rect = this.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top;
+    const height = rect.height;
+
+    // Determinar si la línea roja se dibuja arriba o abajo del item
+    this.classList.remove('drag-over-top', 'drag-over-bottom');
+    if (offsetY < height / 2) {
+        this.classList.add('drag-over-top');
+        dropPosition = 'top';
+    } else {
+        this.classList.add('drag-over-bottom');
+        dropPosition = 'bottom';
+    }
+}
+
+function handleDragLeave() {
+    this.classList.remove('drag-over-top', 'drag-over-bottom');
 }
 
 function handleDrop(e) {
     e.preventDefault();
     e.stopPropagation();
-    const targetIndex = parseInt(this.dataset.index, 10);
+    this.classList.remove('drag-over-top', 'drag-over-bottom');
+
+    let targetIndex = parseInt(this.dataset.index, 10);
 
     if (draggedIndex !== null && draggedIndex !== targetIndex) {
-        // Guardar el id sonando actualmente
         const currentPlayingId = videoList[currentIndex];
 
-        // Mover elemento en el array
+        // Extraer elemento movido
         const movedItem = videoList.splice(draggedIndex, 1)[0];
+
+        // Calcular la posición exacta donde insertar
+        if (dropPosition === 'bottom' && targetIndex < draggedIndex) targetIndex++;
+        if (dropPosition === 'top' && targetIndex > draggedIndex) targetIndex--;
+
         videoList.splice(targetIndex, 0, movedItem);
 
-        // Actualizar el índice del video en reproducción
+        // Actualizar el índice del video reproduciéndose actualmente
         currentIndex = videoList.indexOf(currentPlayingId);
 
         renderPlaylist();
@@ -134,6 +144,9 @@ function handleDrop(e) {
 
 function handleDragEnd() {
     this.classList.remove('dragging');
+    document.querySelectorAll('.playlist-item').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
     draggedIndex = null;
 }
 
