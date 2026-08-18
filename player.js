@@ -276,3 +276,27 @@ function startCrossfade() {
         }
     }, intervalMs);
 }
+
+// --- ESCUCHAR ACTUALIZACIONES EN TIEMPO REAL DESDE LA EXTENSIÓN ---
+if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.type === "UPDATE_PLAYLIST") {
+            // Guardar el video que está sonando actualmente para mantener su posición activa
+            const currentVideoId = videoList[currentIndex];
+
+            // Actualizar arrays con la lista enviada por popup.js
+            videoList = request.videos || [];
+            videoTitles = request.titles || {};
+
+            // Reajustar currentIndex para no perder de vista la pista en reproducción
+            if (currentVideoId && videoList.includes(currentVideoId)) {
+                currentIndex = videoList.indexOf(currentVideoId);
+            } else if (currentIndex >= videoList.length) {
+                currentIndex = Math.max(0, videoList.length - 1);
+            }
+
+            // Redibujar la lista desplegable en pantalla
+            renderPlaylist();
+        }
+    });
+}
