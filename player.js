@@ -39,9 +39,9 @@ if (fadeParam) {
     crossfadeSec = parseInt(fadeParam, 10) || 10;
 }
 
-function updateStatus(text) {
+function updateStatus(content) {
     const el = document.getElementById('status');
-    if (el) el.textContent = text;
+    if (el) el.innerHTML = content;
 }
 
 function setupEvents() {
@@ -91,7 +91,7 @@ function renderPlaylist() {
                 targetPlayer.loadVideoById(videoList[currentIndex]);
                 targetPlayer.playVideo();
                 renderPlaylist();
-                updateStatus(`Sonando: ${videoTitles[id] || `Track ${index + 1}`}`);
+                updateStatus(`▶ Sonando: <strong>${videoTitles[id] || `Track ${index + 1}`}</strong>`);
             }
         };
 
@@ -175,7 +175,7 @@ function onYouTubeIframeAPIReady() {
                 e.target.setVolume(100);
                 e.target.playVideo();
                 startPlaybackMonitor();
-                updateStatus(`Sonando: ${videoTitles[videoList[0]] || 'Track 1'}`);
+                updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[0]] || 'Track 1'}</strong>`);
             },
             'onError': (e) => {
                 console.error("Error en Player A:", e.data);
@@ -226,6 +226,16 @@ function startCrossfade() {
     const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
     const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
+    const currentTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
+    const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
+
+    // Actualización de estado en tiempo real para indicar salida y entrada
+    updateStatus(`
+        <span class="cf-outgoing">🔻 Saliendo: <strong>${currentTitle}</strong></span>
+        <span style="margin: 0 8px; opacity: 0.4;">|</span>
+        <span class="cf-incoming">🔺 Entrando: <strong>${nextTitle}</strong></span>
+    `);
+
     if (fadeOutDiv && fadeInDiv) {
         fadeInDiv.style.zIndex = '2';
         fadeInDiv.style.pointerEvents = 'auto';
@@ -259,7 +269,7 @@ function startCrossfade() {
             currentIndex = nextIndex;
             isCrossfading = false;
             renderPlaylist();
-            updateStatus(`Sonando: ${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}`);
+            updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}</strong>`);
         } else {
             if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
             if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * 100));
