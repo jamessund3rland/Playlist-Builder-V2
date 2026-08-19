@@ -52,10 +52,7 @@
             left: 20px;
             z-index: 9999;
             pointer-events: none;
-            display: inline-flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
+            display: inline-block;
             max-width: calc(100vw - 400px);
         }
 
@@ -65,26 +62,32 @@
             border-radius: 20px; 
             font-size: 13px; 
             pointer-events: auto;
-            display: inline-block;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
         }
 
-        /* CONTENEDOR DE VINILOS ALINEADOS A CADA SECCIÓN */
+        .status-section {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* CONTENEDOR DE VINILOS */
         #vinyl-container {
             display: flex !important;
             flex-direction: row !important;
             justify-content: space-between !important;
+            align-items: flex-start !important;
             width: 100%;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.8s ease-in-out;
-            margin-top: 4px;
-            padding: 0 10px;
+            margin-top: 10px;
         }
 
         #vinyl-container.active {
@@ -103,12 +106,13 @@
             justify-content: center;
         }
 
-        .vinyl-wrapper:first-child {
-            margin-left: 20px; /* Alinea el vinilo rojo directamente debajo del texto Saliendo */
+        /* Alineación exacta debajo de "Saliendo" (inicio) y "Entrando" (final) */
+        .vinyl-wrapper.outgoing {
+            margin-left: 10px;
         }
 
-        .vinyl-wrapper:last-child {
-            margin-right: 40px; /* Alinea el vinilo azul directamente debajo del texto Entrando */
+        .vinyl-wrapper.incoming {
+            margin-right: 10px;
         }
 
         .vinyl {
@@ -200,10 +204,10 @@
         
         <!-- CONTENEDOR DE VINILOS -->
         <div id="vinyl-container">
-            <div class="vinyl-wrapper">
+            <div class="vinyl-wrapper outgoing">
                 <img id="vinyl-outgoing" class="vinyl" alt="" />
             </div>
-            <div class="vinyl-wrapper">
+            <div class="vinyl-wrapper incoming">
                 <img id="vinyl-incoming" class="vinyl" alt="" />
             </div>
         </div>
