@@ -69,32 +69,35 @@
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             white-space: nowrap;
+            position: relative;
         }
 
         .status-section {
             display: flex;
             align-items: center;
             gap: 6px;
+            position: relative;
         }
 
-        /* CONTENEDOR DE VINILOS */
+        /* CONTENEDOR DE VINILOS CON ANCHO PERSISTENTE */
         #vinyl-container {
-            display: flex !important;
-            flex-direction: row !important;
-            justify-content: space-between !important;
-            align-items: flex-start !important;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             width: 100%;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.8s ease-in-out;
             margin-top: 10px;
+            box-sizing: border-box;
+            padding: 0 5px;
         }
 
         #vinyl-container.active {
             opacity: 1;
         }
 
-        /* Discos 50% más grandes (105px) */
+        /* Discos 105px */
         .vinyl-wrapper {
             width: 105px !important;
             height: 105px !important;
@@ -104,15 +107,6 @@
             display: flex;
             align-items: center;
             justify-content: center;
-        }
-
-        /* Alineación exacta debajo de "Saliendo" (inicio) y "Entrando" (final) */
-        .vinyl-wrapper.outgoing {
-            margin-left: 10px;
-        }
-
-        .vinyl-wrapper.incoming {
-            margin-right: 10px;
         }
 
         .vinyl {
