@@ -33,15 +33,15 @@
         #playerA { z-index: 2; pointer-events: auto; }
         #playerB { z-index: 1; pointer-events: none; opacity: 0; }
 
-        /* Capa transparente para bloquear sugeridos/recomendados */
+        /* FIX 1: Desactivar los eventos para que la esquina permita hacer clic en la linea de tiempo y pantalla completa */
         .yt-blocker-corner {
             position: fixed;
             bottom: 0;
             right: 0;
             width: 250px;
-            height: 160px;
+            height: 120px;
             z-index: 999;
-            pointer-events: auto;
+            pointer-events: none !important;
             background: transparent;
         }
 
@@ -50,6 +50,7 @@
             position: fixed;
             top: 60px;
             left: 20px;
+            right: 380px; /* Para abarcar todo el ancho hasta la lista */
             z-index: 9999;
             pointer-events: none;
             display: flex;
@@ -67,29 +68,32 @@
             display: inline-block;
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            width: 100%;
         }
 
-        /* CONTENEDOR DE VINILOS SEPARADOS */
+        /* FIX 2: Vinilos a cada extremo (uno a la izquierda y otro a la derecha) */
         #vinyl-container {
             display: flex !important;
             flex-direction: row !important;
-            gap: 25px !important;
+            justify-content: space-between !important;
+            width: 100%;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.8s ease-in-out;
             margin-top: 5px;
-            padding-left: 5px;
+            padding: 0 20px;
         }
 
         #vinyl-container.active {
             opacity: 1;
         }
 
+        /* FIX 3: Discos 250% más grandes (pasaron de 70px a 175px) */
         .vinyl-wrapper {
-            width: 70px !important;
-            height: 70px !important;
-            min-width: 70px;
-            min-height: 70px;
+            width: 175px !important;
+            height: 175px !important;
+            min-width: 175px;
+            min-height: 175px;
             position: relative;
             display: flex;
             align-items: center;
@@ -97,13 +101,13 @@
         }
 
         .vinyl {
-            width: 70px !important;
-            height: 70px !important;
+            width: 175px !important;
+            height: 175px !important;
             border-radius: 50%;
             object-fit: contain;
             display: block;
             animation: spinVinyl 2.5s linear infinite;
-            filter: drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.9));
+            filter: drop-shadow(0px 4px 12px rgba(0, 0, 0, 0.9));
         }
 
         @keyframes spinVinyl {
@@ -162,7 +166,7 @@
             user-select: none;
             position: relative;
             transition: background 0.2s;
-        }
+        } 
         
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
