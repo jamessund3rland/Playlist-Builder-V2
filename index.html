@@ -56,10 +56,10 @@
             border: 1px solid #333;
         }
 
-        /* --- VINILOS FLOTANTES CON ANIMACIÓN --- */
+        /* --- VINILOS FLOTANTES CON ANIMACIÓN Y ETIQUETAS --- */
         #vinyl-container {
             display: flex;
-            gap: 15px;
+            gap: 20px;
             opacity: 0;
             pointer-events: none;
             transition: opacity 1s ease-in-out;
@@ -67,6 +67,30 @@
 
         #vinyl-container.active {
             opacity: 1;
+        }
+
+        .vinyl-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .vinyl-label {
+            color: #fff;
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .vinyl-wrapper.outgoing .vinyl-label {
+            color: #ff5555;
+        }
+
+        .vinyl-wrapper.incoming .vinyl-label {
+            color: #00e5ff;
         }
 
         .vinyl {
@@ -190,10 +214,16 @@
     <div id="top-status-bar">
         <div id="status">Inicializando...</div>
         
-        <!-- IMÁGENES DE VINILOS (disco rojo = sale, disco azul = entra) -->
+        <!-- IMÁGENES DE VINILOS CON SUS ETIQUETAS DE TEXTO (disco rojo = sale, disco azul = entra) -->
         <div id="vinyl-container">
-            <img src="disco rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
-            <img src="disco azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
+            <div class="vinyl-wrapper outgoing">
+                <span class="vinyl-label">Saliendo</span>
+                <img src="disco rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
+            </div>
+            <div class="vinyl-wrapper incoming">
+                <span class="vinyl-label">Entrante</span>
+                <img src="disco azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
+            </div>
         </div>
     </div>
 
