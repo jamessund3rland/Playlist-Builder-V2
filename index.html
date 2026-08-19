@@ -65,11 +65,12 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 15px;
+            gap: 20px;
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             white-space: nowrap;
             position: relative;
+            width: 100%;
         }
 
         .status-section {
@@ -217,7 +218,7 @@
         </div>
     </div>
 
-    <!-- Script de inyección directa de rutas de extensión -->
+    <!-- Script de inyección directa de imágenes -->
     <script>
         (function() {
             function loadImages() {
@@ -241,6 +242,47 @@
         })();
     </script>
 
+    <!-- Script principal integrado -->
+    <script>
+        // DURACIÓN DEL CROSSFADE EN SEGUNDOS
+        const CROSSFADE_SECONDS = 10;
+
+        // Función para limitar texto a 40 caracteres con "..."
+        function acortarTexto(texto, max = 40) {
+            if (!texto) return '';
+            return texto.length > max ? texto.substring(0, max) + '...' : texto;
+        }
+
+        // Función controladora de la interfaz y la animación de vinilos
+        function ejecutarTransicionVisual(cancionSaliendo, cancionEntrando) {
+            const statusElem = document.getElementById('status');
+            const vinylContainer = document.getElementById('vinyl-container');
+            
+            const txtSaliendo = acortarTexto(cancionSaliendo, 40);
+            const txtEntrando = acortarTexto(cancionEntrando, 40);
+
+            // 1. Mostrar texto de ambas canciones en 2 columnas
+            statusElem.innerHTML = `
+                <div class="status-section cf-outgoing">▼ Saliendo: ${txtSaliendo}</div>
+                <div class="status-section cf-incoming">▲ Entrando: ${txtEntrando}</div>
+            `;
+
+            // 2. Hacer aparecer los discos
+            vinylContainer.classList.add('active');
+
+            const duracionMs = CROSSFADE_SECONDS * 1000;
+
+            // 3. UN SEGUNDO ANTES (ej. segundo 9), ocultar los discos suavemente
+            setTimeout(() => {
+                vinylContainer.classList.remove('active');
+            }, Math.max(0, duracionMs - 1000));
+
+            // 4. AL FINALIZAR EL CROSSFADE (ej. segundo 10), cambiar el texto a "▶ Sonando:"
+            setTimeout(() => {
+                statusElem.innerHTML = `▶ Sonando: ${txtEntrando}`;
+            }, duracionMs);
+        }
+    </script>
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="player.js"></script>
 </body>
