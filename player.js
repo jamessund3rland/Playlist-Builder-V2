@@ -236,6 +236,12 @@ function startCrossfade() {
         <span class="cf-incoming">🔺 Entrando: <strong>${nextTitle}</strong></span>
     `);
 
+    // Mostrar animación de vinilos al iniciar el crossfade
+    const vinylContainer = document.getElementById('vinyl-container');
+    if (vinylContainer) {
+        vinylContainer.classList.add('active');
+    }
+
     if (fadeOutDiv && fadeInDiv) {
         fadeInDiv.style.zIndex = '2';
         fadeInDiv.style.pointerEvents = 'auto';
@@ -268,6 +274,12 @@ function startCrossfade() {
             activePlayer = activePlayer === 'A' ? 'B' : 'A';
             currentIndex = nextIndex;
             isCrossfading = false;
+
+            // Ocultar animación de vinilos al finalizar la transición
+            if (vinylContainer) {
+                vinylContainer.classList.remove('active');
+            }
+
             renderPlaylist();
             updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}</strong>`);
         } else {
