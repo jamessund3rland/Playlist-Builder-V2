@@ -33,6 +33,18 @@
         #playerA { z-index: 2; pointer-events: auto; }
         #playerB { z-index: 1; pointer-events: none; opacity: 0; }
 
+        /* Capa transparente para bloquear sugeridos/recomendados en la esquina inferior derecha */
+        .yt-blocker-corner {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            width: 250px;
+            height: 160px;
+            z-index: 999;
+            pointer-events: auto;
+            background: transparent;
+        }
+
         /* Estado superior */
         #top-status-bar {
             position: fixed;
@@ -56,17 +68,15 @@
             border: 1px solid #333;
         }
 
-        /* --- VINILOS FLOTANTES CON ANIMACIÓN (Alineados a la barra superior, sin texto) --- */
+        /* --- VINILOS FLOTANTES CON ANIMACIÓN --- */
         #vinyl-container {
             display: flex;
             gap: 25px;
             opacity: 0;
             pointer-events: none;
-            transition: opacity 1s ease-in-out;
+            transition: opacity 0.8s ease-in-out;
             margin-top: 5px;
             padding-left: 10px;
-            width: 320px;
-            justify-content: space-between;
         }
 
         #vinyl-container.active {
@@ -74,12 +84,12 @@
         }
 
         .vinyl {
-            width: 95px;
-            height: 95px;
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
-            object-fit: contain;
+            object-fit: cover;
             animation: spinVinyl 2.5s linear infinite;
-            filter: drop-shadow(0px 4px 10px rgba(0, 0, 0, 0.7));
+            filter: drop-shadow(0px 4px 10px rgba(0, 0, 0, 0.8));
         }
 
         @keyframes spinVinyl {
@@ -91,7 +101,7 @@
             }
         }
 
-        /* Contenedor del botón y panel a la derecha (Bajado a top: 55px para no tapar los controles de YouTube) */
+        /* Contenedor del botón y panel a la derecha */
         #playlist-wrapper {
             position: fixed;
             top: 55px;
@@ -191,13 +201,16 @@
         <div id="playerB"></div>
     </div>
 
+    <!-- Bloqueador transparente para evitar interacción con recomendados -->
+    <div class="yt-blocker-corner"></div>
+
     <div id="top-status-bar">
         <div id="status">Inicializando...</div>
         
-        <!-- IMÁGENES DE VINILOS (disco rojo = sale, disco azul = entra) -->
+        <!-- IMÁGENES DE VINILOS (rojo = sale, azul = entra) -->
         <div id="vinyl-container">
-            <img src="disco%20rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
-            <img src="disco%20azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
+            <img src="rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
+            <img src="azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
         </div>
     </div>
 
