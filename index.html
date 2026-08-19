@@ -40,6 +40,10 @@
             left: 20px;
             z-index: 9999;
             pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
         }
 
         #status { 
@@ -50,6 +54,37 @@
             pointer-events: auto;
             display: inline-block;
             border: 1px solid #333;
+        }
+
+        /* --- VINILOS FLOTANTES CON ANIMACIÓN --- */
+        #vinyl-container {
+            display: flex;
+            gap: 15px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease-in-out;
+        }
+
+        #vinyl-container.active {
+            opacity: 1;
+        }
+
+        .vinyl {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            object-fit: contain;
+            animation: spinVinyl 2.5s linear infinite;
+            filter: drop-shadow(0px 4px 10px rgba(0, 0, 0, 0.7));
+        }
+
+        @keyframes spinVinyl {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         /* Contenedor del botón y panel a la derecha */
@@ -154,6 +189,12 @@
 
     <div id="top-status-bar">
         <div id="status">Inicializando...</div>
+        
+        <!-- IMÁGENES DE VINILOS (disco rojo = sale, disco azul = entra) -->
+        <div id="vinyl-container">
+            <img src="disco rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
+            <img src="disco azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
+        </div>
     </div>
 
     <div id="playlist-wrapper">
