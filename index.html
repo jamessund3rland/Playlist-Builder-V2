@@ -56,46 +56,26 @@
             border: 1px solid #333;
         }
 
-        /* --- VINILOS FLOTANTES CON ANIMACIÓN Y ETIQUETAS --- */
+        /* --- VINILOS FLOTANTES CON ANIMACIÓN (Alineados a la barra superior, sin texto) --- */
         #vinyl-container {
             display: flex;
-            gap: 20px;
+            gap: 25px;
             opacity: 0;
             pointer-events: none;
             transition: opacity 1s ease-in-out;
+            margin-top: 5px;
+            padding-left: 10px;
+            width: 320px;
+            justify-content: space-between;
         }
 
         #vinyl-container.active {
             opacity: 1;
         }
 
-        .vinyl-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .vinyl-label {
-            color: #fff;
-            font-size: 11px;
-            font-weight: bold;
-            margin-bottom: 4px;
-            text-shadow: 0 1px 4px rgba(0,0,0,0.9);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .vinyl-wrapper.outgoing .vinyl-label {
-            color: #ff5555;
-        }
-
-        .vinyl-wrapper.incoming .vinyl-label {
-            color: #00e5ff;
-        }
-
         .vinyl {
-            width: 70px;
-            height: 70px;
+            width: 95px;
+            height: 95px;
             border-radius: 50%;
             object-fit: contain;
             animation: spinVinyl 2.5s linear infinite;
@@ -111,10 +91,10 @@
             }
         }
 
-        /* Contenedor del botón y panel a la derecha */
+        /* Contenedor del botón y panel a la derecha (Bajado a top: 55px para no tapar los controles de YouTube) */
         #playlist-wrapper {
             position: fixed;
-            top: 15px;
+            top: 55px;
             right: 20px;
             z-index: 9999;
             display: flex;
@@ -140,7 +120,7 @@
         #playlist-container { 
             pointer-events: auto;
             width: 340px; 
-            max-height: calc(100vh - 80px); 
+            max-height: calc(100vh - 120px); 
             background: rgba(18,18,18,0.95); 
             border: 1px solid #333;
             border-radius: 12px; 
@@ -214,16 +194,10 @@
     <div id="top-status-bar">
         <div id="status">Inicializando...</div>
         
-        <!-- IMÁGENES DE VINILOS CON SUS ETIQUETAS DE TEXTO (disco rojo = sale, disco azul = entra) -->
+        <!-- IMÁGENES DE VINILOS (disco rojo = sale, disco azul = entra) -->
         <div id="vinyl-container">
-            <div class="vinyl-wrapper outgoing">
-                <span class="vinyl-label">Saliendo</span>
-                <img src="disco rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
-            </div>
-            <div class="vinyl-wrapper incoming">
-                <span class="vinyl-label">Entrante</span>
-                <img src="disco azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
-            </div>
+            <img src="disco%20rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
+            <img src="disco%20azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
         </div>
     </div>
 
