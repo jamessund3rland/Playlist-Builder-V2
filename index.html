@@ -45,7 +45,7 @@
             background: transparent;
         }
 
-        /* BARRA SUPERIOR DE ESTADO Y VINILOS */
+        /* BARRA SUPERIOR DE ESTADO Y VINILOS CON FADE OUT SUAVE */
         #top-status-bar {
             position: fixed;
             top: 60px;
@@ -54,6 +54,13 @@
             pointer-events: none;
             display: inline-block;
             max-width: calc(100vw - 400px);
+            opacity: 1;
+            transition: opacity 0.8s ease-in-out;
+        }
+
+        /* Oculta todo el bloque (texto y discos juntos) */
+        #top-status-bar.fade-out {
+            opacity: 0 !important;
         }
 
         #status { 
@@ -80,7 +87,7 @@
             position: relative;
         }
 
-        /* CONTENEDOR DE VINILOS CON ANCHO PERSISTENTE */
+        /* CONTENEDOR DE VINILOS */
         #vinyl-container {
             display: flex;
             justify-content: space-between;
@@ -176,11 +183,23 @@
             user-select: none;
             position: relative;
             transition: background 0.2s;
+            box-sizing: border-box;
+            border-top: 2px solid transparent;
+            border-bottom: 2px solid transparent;
         } 
         
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
+
+        /* LÍNEA ROJA INDICADORA DE REORDENAMIENTO */
+        .playlist-item.drag-over-top {
+            border-top: 2px solid #ff2a00 !important;
+        }
+
+        .playlist-item.drag-over-bottom {
+            border-bottom: 2px solid #ff2a00 !important;
+        }
 
         .cf-outgoing { color: #aaa; }
         .cf-incoming { color: #00e5ff; font-weight: bold; }
@@ -244,42 +263,43 @@
 
     <!-- Script principal integrado -->
     <script>
-        // DURACIÓN DEL CROSSFADE EN SEGUNDOS
         const CROSSFADE_SECONDS = 10;
 
-        // Función para limitar texto a 40 caracteres con "..."
         function acortarTexto(texto, max = 40) {
             if (!texto) return '';
             return texto.length > max ? texto.substring(0, max) + '...' : texto;
         }
 
-        // Función controladora de la interfaz y la animación de vinilos
         function ejecutarTransicionVisual(cancionSaliendo, cancionEntrando) {
+            const topStatusBar = document.getElementById('top-status-bar');
             const statusElem = document.getElementById('status');
             const vinylContainer = document.getElementById('vinyl-container');
             
             const txtSaliendo = acortarTexto(cancionSaliendo, 40);
             const txtEntrando = acortarTexto(cancionEntrando, 40);
 
-            // 1. Mostrar texto de ambas canciones en 2 columnas
+            // 1. Mostrar estado y vinilos
+            topStatusBar.classList.remove('fade-out');
+
             statusElem.innerHTML = `
                 <div class="status-section cf-outgoing">▼ Saliendo: ${txtSaliendo}</div>
                 <div class="status-section cf-incoming">▲ Entrando: ${txtEntrando}</div>
             `;
 
-            // 2. Hacer aparecer los discos
             vinylContainer.classList.add('active');
 
             const duracionMs = CROSSFADE_SECONDS * 1000;
 
-            // 3. UN SEGUNDO ANTES (ej. segundo 9), ocultar los discos suavemente
+            // 2. Un segundo antes de terminar, iniciar Fade Out completo
+            setTimeout(() => {
+                topStatusBar.classList.add('fade-out');
+            }, Math.max(0, duracionMs - 1200));
+
+            // 3. Al finalizar, cambiar a "Sonando" y reaparecer suavemente
             setTimeout(() => {
                 vinylContainer.classList.remove('active');
-            }, Math.max(0, duracionMs - 1000));
-
-            // 4. AL FINALIZAR EL CROSSFADE (ej. segundo 10), cambiar el texto a "▶ Sonando:"
-            setTimeout(() => {
                 statusElem.innerHTML = `▶ Sonando: ${txtEntrando}`;
+                topStatusBar.classList.remove('fade-out');
             }, duracionMs);
         }
     </script>
