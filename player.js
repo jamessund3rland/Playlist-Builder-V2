@@ -88,7 +88,10 @@ function renderPlaylist() {
             currentIndex = index;
             const targetPlayer = activePlayer === 'A' ? playerA : playerB;
             if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
-                targetPlayer.loadVideoById(videoList[currentIndex]);
+                targetPlayer.loadVideoById({
+                    videoId: videoList[currentIndex],
+                    playerVars: { 'rel': 0 }
+                });
                 targetPlayer.playVideo();
                 renderPlaylist();
                 updateStatus(`▶ Sonando: <strong>${videoTitles[id] || `Track ${index + 1}`}</strong>`);
@@ -255,7 +258,10 @@ function startCrossfade() {
 
     if (fadeInPlayer && typeof fadeInPlayer.loadVideoById === 'function') {
         fadeInPlayer.setVolume(0);
-        fadeInPlayer.loadVideoById(videoList[nextIndex]);
+        fadeInPlayer.loadVideoById({
+            videoId: videoList[nextIndex],
+            playerVars: { 'rel': 0 }
+        });
         fadeInPlayer.playVideo();
     }
 
@@ -293,21 +299,17 @@ function startCrossfade() {
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === "UPDATE_PLAYLIST") {
-            // Guardar el video que está sonando actualmente para mantener su posición activa
             const currentVideoId = videoList[currentIndex];
 
-            // Actualizar arrays con la lista enviada por popup.js
             videoList = request.videos || [];
             videoTitles = request.titles || {};
 
-            // Reajustar currentIndex para no perder de vista la pista en reproducción
             if (currentVideoId && videoList.includes(currentVideoId)) {
                 currentIndex = videoList.indexOf(currentVideoId);
             } else if (currentIndex >= videoList.length) {
                 currentIndex = Math.max(0, videoList.length - 1);
             }
 
-            // Redibujar la lista desplegable en pantalla
             renderPlaylist();
         }
     });
