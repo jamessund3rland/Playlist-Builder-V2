@@ -33,7 +33,7 @@
         #playerA { z-index: 2; pointer-events: auto; }
         #playerB { z-index: 1; pointer-events: none; opacity: 0; }
 
-        /* Capa transparente para bloquear sugeridos/recomendados en la esquina inferior derecha */
+        /* Capa transparente para bloquear sugeridos/recomendados */
         .yt-blocker-corner {
             position: fixed;
             bottom: 0;
@@ -45,10 +45,10 @@
             background: transparent;
         }
 
-        /* Estado superior */
+        /* BARRA SUPERIOR DE ESTADO Y VINILOS (Bajado a top: 60px para no tapar los controles de YouTube) */
         #top-status-bar {
             position: fixed;
-            top: 15px;
+            top: 60px;
             left: 20px;
             z-index: 9999;
             pointer-events: none;
@@ -66,45 +66,53 @@
             pointer-events: auto;
             display: inline-block;
             border: 1px solid #333;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
-        /* --- VINILOS FLOTANTES CON ANIMACIÓN --- */
+        /* CONTENEDOR DE VINILOS CON ANIMACIÓN */
         #vinyl-container {
             display: flex;
-            gap: 25px;
+            flex-direction: row;
+            gap: 20px;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.8s ease-in-out;
             margin-top: 5px;
-            padding-left: 10px;
+            padding-left: 5px;
         }
 
         #vinyl-container.active {
             opacity: 1;
         }
 
+        .vinyl-wrapper {
+            width: 75px;
+            height: 75px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .vinyl {
-            width: 80px;
-            height: 80px;
+            width: 75px;
+            height: 75px;
             border-radius: 50%;
-            object-fit: cover;
+            object-fit: contain;
+            display: block;
             animation: spinVinyl 2.5s linear infinite;
-            filter: drop-shadow(0px 4px 10px rgba(0, 0, 0, 0.8));
+            filter: drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.9));
         }
 
         @keyframes spinVinyl {
-            from {
-                transform: rotate(0deg);
-            }
-            to {
-                transform: rotate(360deg);
-            }
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
-        /* Contenedor del botón y panel a la derecha */
+        /* CONTENEDOR DE PLAYLIST A LA DERECHA */
         #playlist-wrapper {
             position: fixed;
-            top: 55px;
+            top: 60px;
             right: 20px;
             z-index: 9999;
             display: flex;
@@ -126,7 +134,6 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
-        /* Playlist desplegable debajo del botón */
         #playlist-container { 
             pointer-events: auto;
             width: 340px; 
@@ -159,7 +166,6 @@
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
 
-        /* Línea roja indicadora de soltar el track */
         .drop-indicator-above::before {
             content: '';
             position: absolute;
@@ -185,14 +191,8 @@
             border-radius: 2px;
         }
 
-        /* --- FORMATO PARA INDICADOR DE CROSSFADE EN TIEMPO REAL --- */
-        .cf-outgoing {
-            color: #aaa;
-        }
-        .cf-incoming {
-            color: #00e5ff;
-            font-weight: bold;
-        }
+        .cf-outgoing { color: #aaa; }
+        .cf-incoming { color: #00e5ff; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -201,16 +201,19 @@
         <div id="playerB"></div>
     </div>
 
-    <!-- Bloqueador transparente para evitar interacción con recomendados -->
     <div class="yt-blocker-corner"></div>
 
     <div id="top-status-bar">
         <div id="status">Inicializando...</div>
         
-        <!-- IMÁGENES DE VINILOS (rojo = sale, azul = entra) -->
+        <!-- CONTENEDOR DE VINILOS -->
         <div id="vinyl-container">
-            <img src="rojo.png" class="vinyl" id="vinyl-outgoing" alt="Saliendo" />
-            <img src="azul.png" class="vinyl" id="vinyl-incoming" alt="Entrante" />
+            <div class="vinyl-wrapper">
+                <img id="vinyl-outgoing" class="vinyl" alt="" />
+            </div>
+            <div class="vinyl-wrapper">
+                <img id="vinyl-incoming" class="vinyl" alt="" />
+            </div>
         </div>
     </div>
 
@@ -223,6 +226,22 @@
             <div id="playlist-items"></div>
         </div>
     </div>
+
+    <!-- Script para inyectar correctamente las rutas internas de la extensión -->
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const redImg = document.getElementById('vinyl-outgoing');
+            const blueImg = document.getElementById('vinyl-incoming');
+            
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+                redImg.src = chrome.runtime.getURL('rojo.png');
+                blueImg.src = chrome.runtime.getURL('azul.png');
+            } else {
+                redImg.src = 'rojo.png';
+                blueImg.src = 'azul.png';
+            }
+        });
+    </script>
 
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="player.js"></script>
