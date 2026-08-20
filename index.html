@@ -45,67 +45,65 @@
             background: transparent;
         }
 
-        /* BARRA SUPERIOR DE ESTADO Y VINILOS CON FADE OUT SUAVE */
+        /* BARRA SUPERIOR COMPLETA CON FADE OUT SUAVE */
         #top-status-bar {
             position: fixed;
             top: 60px;
             left: 20px;
             z-index: 9999;
             pointer-events: none;
-            display: inline-block;
-            max-width: calc(100vw - 400px);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
             opacity: 1;
-            transition: opacity 0.8s ease-in-out;
+            transition: opacity 0.8s ease-in-out; /* Controla el desvanecimiento de todo el bloque */
         }
 
-        /* Oculta todo el bloque (texto y discos juntos) */
+        /* Oculta la barra completa (texto + vinilos al mismo tiempo) */
         #top-status-bar.fade-out {
             opacity: 0 !important;
         }
 
         #status { 
             background: rgba(0,0,0,0.85); 
-            padding: 8px 16px; 
+            padding: 10px 16px; 
             border-radius: 20px; 
             font-size: 13px; 
             pointer-events: auto;
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 20px;
+            flex-direction: column;
+            justify-content: center;
+            gap: 6px;
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             white-space: nowrap;
-            position: relative;
-            width: 100%;
+            overflow: hidden;
+            max-width: 650px;
         }
 
         .status-section {
             display: flex;
             align-items: center;
             gap: 6px;
-            position: relative;
+            text-overflow: ellipsis;
+            overflow: hidden;
         }
 
         /* CONTENEDOR DE VINILOS */
         #vinyl-container {
-            display: flex;
+            display: none;
             justify-content: space-between;
             align-items: center;
-            width: 100%;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.8s ease-in-out;
+            width: 360px;
             margin-top: 10px;
             box-sizing: border-box;
-            padding: 0 5px;
+            padding: 0 10px;
         }
 
         #vinyl-container.active {
-            opacity: 1;
+            display: flex;
         }
 
-        /* Discos 105px */
         .vinyl-wrapper {
             width: 105px !important;
             height: 105px !important;
@@ -132,7 +130,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* CONTENEDOR DE PLAYLIST A LA DERECHA */
+        /* PLAYLIST DERECHA */
         #playlist-wrapper {
             position: fixed;
             top: 60px;
@@ -170,35 +168,7 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.7);
         }
 
-        #playlist-header { 
-            font-size: 11px; 
-            color: #aaa; 
-            margin-bottom: 8px; 
-            padding-bottom: 6px; 
-            border-bottom: 1px solid #333; 
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        #refresh-playlist-btn {
-            background: transparent;
-            border: 1px solid #444;
-            color: #aaa;
-            border-radius: 4px;
-            padding: 2px 6px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s ease;
-            line-height: 1;
-        }
-
-        #refresh-playlist-btn:hover {
-            background: #ff2a00;
-            color: #fff;
-            border-color: #ff2a00;
-        }
-
+        #playlist-header { font-size: 11px; color: #aaa; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #333; }
         #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; }
 
         .playlist-item { 
@@ -211,23 +181,11 @@
             user-select: none;
             position: relative;
             transition: background 0.2s;
-            box-sizing: border-box;
-            border-top: 2px solid transparent;
-            border-bottom: 2px solid transparent;
         } 
         
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
-
-        /* LÍNEA ROJA INDICADORA DE REORDENAMIENTO */
-        .playlist-item.drag-over-top {
-            border-top: 2px solid #ff2a00 !important;
-        }
-
-        .playlist-item.drag-over-bottom {
-            border-bottom: 2px solid #ff2a00 !important;
-        }
 
         .cf-outgoing { color: #aaa; }
         .cf-incoming { color: #00e5ff; font-weight: bold; }
@@ -260,13 +218,12 @@
         <div id="playlist-container">
             <div id="playlist-header">
                 <span>Crossfade: <strong id="fade-info">10s</strong></span>
-                <button id="refresh-playlist-btn" title="Actualizar playlist">⟳</button>
             </div>
             <div id="playlist-items"></div>
         </div>
     </div>
 
-    <!-- Script de inyección directa de imágenes -->
+    <!-- Script de carga de imágenes -->
     <script>
         (function() {
             function loadImages() {
@@ -288,49 +245,6 @@
                 loadImages();
             }
         })();
-    </script>
-
-    <!-- Script principal integrado -->
-    <script>
-        const CROSSFADE_SECONDS = 10;
-
-        function acortarTexto(texto, max = 40) {
-            if (!texto) return '';
-            return texto.length > max ? texto.substring(0, max) + '...' : texto;
-        }
-
-        function ejecutarTransicionVisual(cancionSaliendo, cancionEntrando) {
-            const topStatusBar = document.getElementById('top-status-bar');
-            const statusElem = document.getElementById('status');
-            const vinylContainer = document.getElementById('vinyl-container');
-            
-            const txtSaliendo = acortarTexto(cancionSaliendo, 40);
-            const txtEntrando = acortarTexto(cancionEntrando, 40);
-
-            // 1. Mostrar estado y vinilos
-            topStatusBar.classList.remove('fade-out');
-
-            statusElem.innerHTML = `
-                <div class="status-section cf-outgoing">▼ Saliendo: ${txtSaliendo}</div>
-                <div class="status-section cf-incoming">▲ Entrando: ${txtEntrando}</div>
-            `;
-
-            vinylContainer.classList.add('active');
-
-            const duracionMs = CROSSFADE_SECONDS * 1000;
-
-            // 2. Un segundo antes de terminar, iniciar Fade Out completo
-            setTimeout(() => {
-                topStatusBar.classList.add('fade-out');
-            }, Math.max(0, duracionMs - 1200));
-
-            // 3. Al finalizar, cambiar a "Sonando" y reaparecer suavemente
-            setTimeout(() => {
-                vinylContainer.classList.remove('active');
-                statusElem.innerHTML = `▶ Sonando: ${txtEntrando}`;
-                topStatusBar.classList.remove('fade-out');
-            }, duracionMs);
-        }
     </script>
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="player.js"></script>
