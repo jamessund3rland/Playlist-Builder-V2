@@ -170,8 +170,36 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.7);
         }
 
-        #playlist-header { font-size: 11px; color: #aaa; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #333; }
-        #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; position: relative; }
+        #playlist-header { 
+            font-size: 11px; 
+            color: #aaa; 
+            margin-bottom: 8px; 
+            padding-bottom: 6px; 
+            border-bottom: 1px solid #333; 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #refresh-playlist-btn {
+            background: transparent;
+            border: 1px solid #444;
+            color: #aaa;
+            border-radius: 4px;
+            padding: 2px 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            line-height: 1;
+        }
+
+        #refresh-playlist-btn:hover {
+            background: #ff2a00;
+            color: #fff;
+            border-color: #ff2a00;
+        }
+
+        #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; }
 
         .playlist-item { 
             background: #282828; 
@@ -184,37 +212,21 @@
             position: relative;
             transition: background 0.2s;
             box-sizing: border-box;
+            border-top: 2px solid transparent;
+            border-bottom: 2px solid transparent;
         } 
         
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
 
-        /* LÍNEA ROJA GUÍA MEDIANTE PSEUDO-ELEMENTOS (NO FALLA CON BORDES) */
-        .playlist-item.drag-over-top::before {
-            content: '';
-            position: absolute;
-            top: -4px;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background-color: #ff2a00;
-            border-radius: 2px;
-            z-index: 1000;
-            box-shadow: 0 0 6px rgba(255, 42, 0, 0.8);
+        /* LÍNEA ROJA INDICADORA DE REORDENAMIENTO */
+        .playlist-item.drag-over-top {
+            border-top: 2px solid #ff2a00 !important;
         }
 
-        .playlist-item.drag-over-bottom::after {
-            content: '';
-            position: absolute;
-            bottom: -4px;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background-color: #ff2a00;
-            border-radius: 2px;
-            z-index: 1000;
-            box-shadow: 0 0 6px rgba(255, 42, 0, 0.8);
+        .playlist-item.drag-over-bottom {
+            border-bottom: 2px solid #ff2a00 !important;
         }
 
         .cf-outgoing { color: #aaa; }
@@ -248,6 +260,7 @@
         <div id="playlist-container">
             <div id="playlist-header">
                 <span>Crossfade: <strong id="fade-info">10s</strong></span>
+                <button id="refresh-playlist-btn" title="Actualizar playlist">⟳</button>
             </div>
             <div id="playlist-items"></div>
         </div>
