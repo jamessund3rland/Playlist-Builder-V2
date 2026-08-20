@@ -2,34 +2,77 @@
 // REPRODUCTOR DE PLAYLIST Y CONTROL DE CROSSFADE
 // ==========================================
 
-// Configuración general
 const CROSSFADE_DURATION = 10; // Duración en segundos
 let fadeTimeout = null;
 
-// PLAYLIST: Agrega o edita tus IDs y títulos de YouTube aquí
-let playlist = [
-    { id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio - Beats to Relax/Study to' },
-    { id: '5qap5aO4i9A', title: 'Lofi Girl - Sleep Radio' },
-    { id: 'DWcU18jY44e', title: 'Relaxing Ambient Music' }
-];
-
+let playlist = []; // Se llena automáticamente desde Chrome Bookmarks / Storage
 let currentIndex = 0;
 let dragSrcIndex = null;
 
-// Reproductores de YouTube
 let playerA = null;
 let playerB = null;
-let activePlayer = 'A'; // 'A' o 'B'
+let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Función para acortar texto a 40 caracteres con "..."
+// Extractor de ID de YouTube desde URLs
+function obtenerYouTubeId(url) {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+}
+
 function acortarTexto(texto, max = 40) {
     if (!texto) return '';
     return texto.length > max ? texto.substring(0, max) + '...' : texto;
 }
 
-// Control del estado del reproductor, textos y vinilos (FadeOut unificado)
+// Carga de marcadores/favoritos de Chrome
+function cargarPlaylistDesdeChrome() {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get(['youtubePlaylist', 'playlist'], (result) => {
+            const listaGuardada = result.youtubePlaylist || result.playlist || [];
+            if (listaGuardada.length > 0) {
+                procesarLista(listaGuardada);
+            } else {
+                pedirMarcadoresAExtension();
+            }
+        });
+    } else {
+        pedirMarcadoresAExtension();
+    }
+}
+
+function pedirMarcadoresAExtension() {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ action: 'getPlaylist' }, (response) => {
+            if (response && response.playlist) {
+                procesarLista(response.playlist);
+            }
+        });
+    }
+}
+
+function procesarLista(items) {
+    playlist = items.map(item => {
+        const id = item.id || obtenerYouTubeId(item.url);
+        return {
+            id: id,
+            title: item.title || item.name || 'Video de YouTube',
+            url: item.url || `https://www.youtube.com/watch?v=${id}`
+        };
+    }).filter(item => item.id);
+
+    renderPlaylist();
+
+    // Si los reproductores ya están listos y no hay canción sonando, arrancar
+    if (playerA && playlist.length > 0 && !isCrossfading) {
+        reproducirPistaDirecta(0);
+    }
+}
+
+// Control del estado del reproductor, textos y vinilos
 function actualizarEstado(trackSaliendo, trackEntrando, estaEnCrossfade = false) {
     const topStatusBar = document.getElementById('top-status-bar');
     const statusElem = document.getElementById('status');
@@ -43,48 +86,39 @@ function actualizarEstado(trackSaliendo, trackEntrando, estaEnCrossfade = false)
     }
 
     if (estaEnCrossfade && trackSaliendo && trackEntrando) {
-        // 1. Asegurar que esté visible al arrancar el crossfade
         topStatusBar.classList.remove('fade-out');
 
-        const saliendoTxt = acortarTexto(trackSaliendo.title || trackSaliendo.id || trackSaliendo, 40);
-        const entrandoTxt = acortarTexto(trackEntrando.title || trackEntrando.id || trackEntrando, 40);
+        const saliendoTxt = acortarTexto(trackSaliendo.title, 40);
+        const entrandoTxt = acortarTexto(trackEntrando.title, 40);
 
         statusElem.innerHTML = `
             <div class="status-section cf-outgoing">▼ Saliendo: ${saliendoTxt}</div>
             <div class="status-section cf-incoming">▲ Entrando: ${entrandoTxt}</div>
         `;
 
-        if (vinylContainer) {
-            vinylContainer.classList.add('active');
-        }
+        if (vinylContainer) vinylContainer.classList.add('active');
 
-        // 2. Desvanecer TODO (cartel + discos) 1.2 segundos antes de terminar
         const tiempoOcultar = Math.max(0, (CROSSFADE_DURATION - 1.2) * 1000);
         fadeTimeout = setTimeout(() => {
             topStatusBar.classList.add('fade-out');
         }, tiempoOcultar);
 
     } else if (trackEntrando) {
-        // 3. Cuando termina el crossfade, aseguramos el fade out
         topStatusBar.classList.add('fade-out');
 
-        // 4. Esperamos 800ms a que esté 100% invisible para cambiar a "Sonando" sin saltos
         setTimeout(() => {
-            if (vinylContainer) {
-                vinylContainer.classList.remove('active');
-            }
+            if (vinylContainer) vinylContainer.classList.remove('active');
 
-            const actualTxt = acortarTexto(trackEntrando.title || trackEntrando.id || trackEntrando, 40);
+            const actualTxt = acortarTexto(trackEntrando.title, 40);
             statusElem.innerHTML = `<div class="status-section">▶ Sonando: ${actualTxt}</div>`;
 
-            // Volvemos a mostrar la barra suavemente
             topStatusBar.classList.remove('fade-out');
         }, 800);
     }
 }
 
 // ==========================================
-// RENDER DE PLAYLIST Y DRAG & DROP (LÍNEA ROJA)
+// RENDER DE PLAYLIST Y DRAG & DROP
 // ==========================================
 
 function renderPlaylist() {
@@ -95,14 +129,18 @@ function renderPlaylist() {
     container.innerHTML = '';
     if (btn) btn.innerText = `≡ Playlist (${playlist.length})`;
 
+    if (playlist.length === 0) {
+        container.innerHTML = '<div style="padding:10px; font-size:12px; color:#888;">No se encontraron links de YouTube en Favoritos.</div>';
+        return;
+    }
+
     playlist.forEach((track, index) => {
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
         item.draggable = true;
         item.dataset.index = index;
-        item.innerText = `${index + 1}. ${acortarTexto(track.title || track.id || 'Track', 35)}`;
+        item.innerText = `${index + 1}. ${acortarTexto(track.title, 35)}`;
 
-        // Evento de clic para saltar directo a una canción
         item.addEventListener('click', (e) => {
             if (e.target.classList.contains('dragging')) return;
             if (index !== currentIndex) {
@@ -110,7 +148,6 @@ function renderPlaylist() {
             }
         });
 
-        // Eventos Drag & Drop
         item.addEventListener('dragstart', handleDragStart);
         item.addEventListener('dragover', handleDragOver);
         item.addEventListener('dragleave', handleDragLeave);
@@ -121,7 +158,6 @@ function renderPlaylist() {
     });
 }
 
-// MANEJADORES DE ARRASTRE Y LÍNEA ROJA GUÍA
 function handleDragStart(e) {
     dragSrcIndex = parseInt(this.dataset.index, 10);
     this.classList.add('dragging');
@@ -188,16 +224,16 @@ function handleDragEnd() {
 }
 
 // ==========================================
-// LÓGICA DE REPRODUCCIÓN Y CROSSFADE (YouTube API)
+// REPRODUCCIÓN Y CROSSFADE
 // ==========================================
 
 function initPlayers() {
-    if (playlist.length === 0) return;
+    const initialId = playlist.length > 0 ? playlist[0].id : '';
 
     playerA = new YT.Player('playerA', {
         height: '100%',
         width: '100%',
-        videoId: playlist[0].id,
+        videoId: initialId,
         playerVars: { 'autoplay': 1, 'controls': 0, 'enablejsapi': 1 },
         events: {
             'onReady': onPlayerReady,
@@ -217,15 +253,15 @@ function initPlayers() {
 }
 
 function onPlayerReady(event) {
-    event.target.playVideo();
-    event.target.setVolume(100);
-    actualizarEstado(null, playlist[currentIndex], false);
-    renderPlaylist();
+    if (playlist.length > 0) {
+        event.target.playVideo();
+        event.target.setVolume(100);
+        actualizarEstado(null, playlist[currentIndex], false);
+    }
     iniciarMonitoreoTiempo();
 }
 
 function onPlayerStateChange(event) {
-    // Si la canción termina manualmente o por error, pasar a la siguiente
     if (event.data === YT.PlayerState.ENDED && !isCrossfading) {
         siguientePista();
     }
@@ -288,6 +324,7 @@ function iniciarCrossfade() {
 }
 
 function reproducirPistaDirecta(index) {
+    if (!playlist[index]) return;
     currentIndex = index;
     const curPlayer = activePlayer === 'A' ? playerA : playerB;
     if (curPlayer && typeof curPlayer.loadVideoById === 'function') {
@@ -299,16 +336,18 @@ function reproducirPistaDirecta(index) {
 }
 
 function siguientePista() {
+    if (playlist.length === 0) return;
     const nextIdx = (currentIndex + 1) % playlist.length;
     reproducirPistaDirecta(nextIdx);
 }
 
 // ==========================================
-// INICIALIZACIÓN Y EVENTOS DOM
+// EVENTOS DOM
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Abrir/cerrar panel de la playlist
+    cargarPlaylistDesdeChrome();
+
     const btn = document.getElementById('playlist-btn');
     const container = document.getElementById('playlist-container');
 
@@ -319,18 +358,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Botón Recargar Lista (⟳)
-    const reloadBtn = document.querySelector('.reload-playlist-btn') || document.querySelector('[title="Recargar playlist"]');
-    if (reloadBtn) {
-        reloadBtn.addEventListener('click', () => {
-            renderPlaylist();
-            console.log("Playlist re-renderizada correctamente.");
+    const refreshBtn = document.getElementById('refresh-playlist-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            cargarPlaylistDesdeChrome();
         });
     }
 });
 
-// Callback global llamado automáticamente por la API de YouTube
 function onYouTubeIframeAPIReady() {
-    console.log("API de YouTube lista para reproducir.");
     initPlayers();
 }
