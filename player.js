@@ -1,371 +1,314 @@
-// ==========================================
-// REPRODUCTOR DE PLAYLIST Y CONTROL DE CROSSFADE
-// ==========================================
-
-const CROSSFADE_DURATION = 10; // Duración en segundos
-let fadeTimeout = null;
-
-let playlist = []; // Se llena automáticamente desde Chrome Bookmarks / Storage
+let videoList = [];
+let videoTitles = {};
+let crossfadeSec = 10;
 let currentIndex = 0;
-let dragSrcIndex = null;
 
-let playerA = null;
-let playerB = null;
+let playerA, playerB;
 let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
-// Extractor de ID de YouTube desde URLs
-function obtenerYouTubeId(url) {
-    if (!url) return null;
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
+// Parseo de parámetros URL
+const urlParams = new URLSearchParams(window.location.search);
+const videosParam = urlParams.get('videos');
+const titlesParam = urlParams.get('titles');
+const fadeParam = urlParams.get('crossfade');
+
+if (videosParam) {
+    videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
 }
 
-function acortarTexto(texto, max = 40) {
-    if (!texto) return '';
-    return texto.length > max ? texto.substring(0, max) + '...' : texto;
+// Fallback de demostración si la URL se abre vacía sin parámetros
+if (videoList.length === 0) {
+    videoList = ['jfKfPfyJRdk', '5qap5aO4i9A', 'DWuZBoX61XU'];
+    videoTitles = {
+        'jfKfPfyJRdk': 'Lofi Hip Hop Radio - Beats to Relax/Study',
+        '5qap5aO4i9A': 'Lofi Chill Beats',
+        'DWuZBoX61XU': 'Relaxing Jazz Music'
+    };
 }
 
-// Carga de marcadores/favoritos de Chrome
-function cargarPlaylistDesdeChrome() {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.get(['youtubePlaylist', 'playlist'], (result) => {
-            const listaGuardada = result.youtubePlaylist || result.playlist || [];
-            if (listaGuardada.length > 0) {
-                procesarLista(listaGuardada);
-            } else {
-                pedirMarcadoresAExtension();
-            }
-        });
-    } else {
-        pedirMarcadoresAExtension();
+if (titlesParam) {
+    try {
+        videoTitles = JSON.parse(decodeURIComponent(titlesParam));
+    } catch (e) {
+        console.error("Error al decodificar títulos", e);
     }
 }
-
-function pedirMarcadoresAExtension() {
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'getPlaylist' }, (response) => {
-            if (response && response.playlist) {
-                procesarLista(response.playlist);
-            }
-        });
-    }
+if (fadeParam) {
+    crossfadeSec = parseInt(fadeParam, 10) || 10;
 }
 
-function procesarLista(items) {
-    playlist = items.map(item => {
-        const id = item.id || obtenerYouTubeId(item.url);
-        return {
-            id: id,
-            title: item.title || item.name || 'Video de YouTube',
-            url: item.url || `https://www.youtube.com/watch?v=${id}`
+function updateStatus(content) {
+    const el = document.getElementById('status');
+    if (el) el.innerHTML = content;
+}
+
+function setupEvents() {
+    const btn = document.getElementById('playlist-btn');
+    const container = document.getElementById('playlist-container');
+
+    if (btn && container) {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const isHidden = container.style.display === 'none' || container.style.display === '';
+            container.style.display = isHidden ? 'flex' : 'none';
         };
-    }).filter(item => item.id);
-
-    renderPlaylist();
-
-    // Si los reproductores ya están listos y no hay canción sonando, arrancar
-    if (playerA && playlist.length > 0 && !isCrossfading) {
-        reproducirPistaDirecta(0);
     }
 }
 
-// Control del estado del reproductor, textos y vinilos
-function actualizarEstado(trackSaliendo, trackEntrando, estaEnCrossfade = false) {
-    const topStatusBar = document.getElementById('top-status-bar');
-    const statusElem = document.getElementById('status');
-    const vinylContainer = document.getElementById('vinyl-container');
-
-    if (!statusElem || !topStatusBar) return;
-
-    if (fadeTimeout) {
-        clearTimeout(fadeTimeout);
-        fadeTimeout = null;
-    }
-
-    if (estaEnCrossfade && trackSaliendo && trackEntrando) {
-        topStatusBar.classList.remove('fade-out');
-
-        const saliendoTxt = acortarTexto(trackSaliendo.title, 40);
-        const entrandoTxt = acortarTexto(trackEntrando.title, 40);
-
-        statusElem.innerHTML = `
-            <div class="status-section cf-outgoing">▼ Saliendo: ${saliendoTxt}</div>
-            <div class="status-section cf-incoming">▲ Entrando: ${entrandoTxt}</div>
-        `;
-
-        if (vinylContainer) vinylContainer.classList.add('active');
-
-        const tiempoOcultar = Math.max(0, (CROSSFADE_DURATION - 1.2) * 1000);
-        fadeTimeout = setTimeout(() => {
-            topStatusBar.classList.add('fade-out');
-        }, tiempoOcultar);
-
-    } else if (trackEntrando) {
-        topStatusBar.classList.add('fade-out');
-
-        setTimeout(() => {
-            if (vinylContainer) vinylContainer.classList.remove('active');
-
-            const actualTxt = acortarTexto(trackEntrando.title, 40);
-            statusElem.innerHTML = `<div class="status-section">▶ Sonando: ${actualTxt}</div>`;
-
-            topStatusBar.classList.remove('fade-out');
-        }, 800);
-    }
+function clearIndicators() {
+    document.querySelectorAll('.playlist-item').forEach(el => {
+        el.classList.remove('drop-indicator-above', 'drop-indicator-below');
+    });
 }
-
-// ==========================================
-// RENDER DE PLAYLIST Y DRAG & DROP
-// ==========================================
 
 function renderPlaylist() {
     const container = document.getElementById('playlist-items');
     const btn = document.getElementById('playlist-btn');
+    const fadeInfo = document.getElementById('fade-info');
+
+    if (btn) btn.textContent = `≡ Playlist (${videoList.length})`;
+    if (fadeInfo) fadeInfo.textContent = `${crossfadeSec}s`;
+
     if (!container) return;
-
     container.innerHTML = '';
-    if (btn) btn.innerText = `≡ Playlist (${playlist.length})`;
 
-    if (playlist.length === 0) {
-        container.innerHTML = '<div style="padding:10px; font-size:12px; color:#888;">No se encontraron links de YouTube en Favoritos.</div>';
-        return;
-    }
+    let draggedIndex = null;
 
-    playlist.forEach((track, index) => {
+    videoList.forEach((id, index) => {
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
+        item.textContent = `${index + 1}. ${videoTitles[id] || `Track ${index + 1}`}`;
         item.draggable = true;
         item.dataset.index = index;
-        item.innerText = `${index + 1}. ${acortarTexto(track.title, 35)}`;
 
-        item.addEventListener('click', (e) => {
-            if (e.target.classList.contains('dragging')) return;
-            if (index !== currentIndex) {
-                reproducirPistaDirecta(index);
+        item.onclick = (e) => {
+            if (item.classList.contains('dragging')) return;
+            currentIndex = index;
+            const targetPlayer = activePlayer === 'A' ? playerA : playerB;
+            if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
+                targetPlayer.loadVideoById(videoList[currentIndex]);
+                targetPlayer.playVideo();
+                renderPlaylist();
+                updateStatus(`▶ Sonando: <strong>${videoTitles[id] || `Track ${index + 1}`}</strong>`);
+            }
+        };
+
+        // Arrastrar y soltar con línea roja
+        item.addEventListener('dragstart', (e) => {
+            draggedIndex = index;
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+            clearIndicators();
+        });
+
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            clearIndicators();
+
+            const rect = item.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+
+            if (e.clientY < midpoint) {
+                item.classList.add('drop-indicator-above');
+            } else {
+                item.classList.add('drop-indicator-below');
             }
         });
 
-        item.addEventListener('dragstart', handleDragStart);
-        item.addEventListener('dragover', handleDragOver);
-        item.addEventListener('dragleave', handleDragLeave);
-        item.addEventListener('drop', handleDrop);
-        item.addEventListener('dragend', handleDragEnd);
+        item.addEventListener('dragleave', () => {
+            item.classList.remove('drop-indicator-above', 'drop-indicator-below');
+        });
+
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            clearIndicators();
+
+            const targetIndex = parseInt(item.dataset.index, 10);
+            if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+            const rect = item.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+            let newIndex = e.clientY < midpoint ? targetIndex : targetIndex + 1;
+
+            if (draggedIndex < newIndex) newIndex--;
+
+            const currentTrackId = videoList[currentIndex];
+            const movedItem = videoList.splice(draggedIndex, 1)[0];
+            videoList.splice(newIndex, 0, movedItem);
+
+            currentIndex = videoList.indexOf(currentTrackId);
+            renderPlaylist();
+        });
 
         container.appendChild(item);
     });
 }
 
-function handleDragStart(e) {
-    dragSrcIndex = parseInt(this.dataset.index, 10);
-    this.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-}
-
-function handleDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    
-    document.querySelectorAll('.playlist-item').forEach(el => {
-        el.classList.remove('drag-over-top', 'drag-over-bottom');
-    });
-
-    const targetIndex = parseInt(this.dataset.index, 10);
-    if (dragSrcIndex === targetIndex) return;
-
-    const rect = this.getBoundingClientRect();
-    const offset = e.clientY - rect.top;
-
-    if (offset < rect.height / 2) {
-        this.classList.add('drag-over-top');
-    } else {
-        this.classList.add('drag-over-bottom');
-    }
-}
-
-function handleDragLeave() {
-    this.classList.remove('drag-over-top', 'drag-over-bottom');
-}
-
-function handleDrop(e) {
-    e.stopPropagation();
-    e.preventDefault();
-
-    const targetIndex = parseInt(this.dataset.index, 10);
-    if (dragSrcIndex === null || dragSrcIndex === targetIndex) return;
-
-    const rect = this.getBoundingClientRect();
-    const offset = e.clientY - rect.top;
-    let newIndex = offset < rect.height / 2 ? targetIndex : targetIndex + 1;
-
-    if (dragSrcIndex < newIndex) newIndex--;
-
-    const [movedTrack] = playlist.splice(dragSrcIndex, 1);
-    playlist.splice(newIndex, 0, movedTrack);
-
-    if (currentIndex === dragSrcIndex) {
-        currentIndex = newIndex;
-    } else if (dragSrcIndex < currentIndex && newIndex >= currentIndex) {
-        currentIndex--;
-    } else if (dragSrcIndex > currentIndex && newIndex <= currentIndex) {
-        currentIndex++;
-    }
-
+function onYouTubeIframeAPIReady() {
+    setupEvents();
     renderPlaylist();
-}
 
-function handleDragEnd() {
-    this.classList.remove('dragging');
-    document.querySelectorAll('.playlist-item').forEach(el => {
-        el.classList.remove('drag-over-top', 'drag-over-bottom');
-    });
-}
+    updateStatus("Cargando reproductor...");
 
-// ==========================================
-// REPRODUCCIÓN Y CROSSFADE
-// ==========================================
-
-function initPlayers() {
-    const initialId = playlist.length > 0 ? playlist[0].id : '';
+    const origin = window.location.origin;
 
     playerA = new YT.Player('playerA', {
         height: '100%',
         width: '100%',
-        videoId: initialId,
-        playerVars: { 'autoplay': 1, 'controls': 0, 'enablejsapi': 1 },
+        videoId: videoList[0],
+        playerVars: { 
+            'autoplay': 1, 
+            'controls': 1, 
+            'rel': 0, 
+            'iv_load_policy': 3,
+            'origin': origin 
+        },
         events: {
-            'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange
+            'onReady': (e) => {
+                e.target.setVolume(100);
+                e.target.playVideo();
+                startPlaybackMonitor();
+                updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[0]] || 'Track 1'}</strong>`);
+            },
+            'onError': (e) => {
+                console.error("Error en Player A:", e.data);
+                updateStatus("Error al cargar video de YouTube");
+            }
         }
     });
 
     playerB = new YT.Player('playerB', {
         height: '100%',
         width: '100%',
-        videoId: '',
-        playerVars: { 'autoplay': 0, 'controls': 0, 'enablejsapi': 1 },
-        events: {
-            'onStateChange': onPlayerStateChange
+        playerVars: { 
+            'autoplay': 0, 
+            'controls': 1, 
+            'rel': 0, 
+            'iv_load_policy': 3,
+            'origin': origin 
         }
     });
 }
 
-function onPlayerReady(event) {
-    if (playlist.length > 0) {
-        event.target.playVideo();
-        event.target.setVolume(100);
-        actualizarEstado(null, playlist[currentIndex], false);
-    }
-    iniciarMonitoreoTiempo();
-}
-
-function onPlayerStateChange(event) {
-    if (event.data === YT.PlayerState.ENDED && !isCrossfading) {
-        siguientePista();
-    }
-}
-
-function iniciarMonitoreoTiempo() {
+function startPlaybackMonitor() {
     if (checkInterval) clearInterval(checkInterval);
 
     checkInterval = setInterval(() => {
-        const curPlayer = activePlayer === 'A' ? playerA : playerB;
-        if (!curPlayer || typeof curPlayer.getDuration !== 'function') return;
+        const currentPlayer = activePlayer === 'A' ? playerA : playerB;
+        if (!currentPlayer || typeof currentPlayer.getCurrentTime !== 'function' || typeof currentPlayer.getDuration !== 'function') return;
 
-        const currentTime = curPlayer.getCurrentTime();
-        const duration = curPlayer.getDuration();
+        const currentTime = currentPlayer.getCurrentTime();
+        const duration = currentPlayer.getDuration();
 
-        if (duration > 0 && (duration - currentTime) <= CROSSFADE_DURATION && !isCrossfading) {
-            iniciarCrossfade();
+        if (duration > 0 && !isCrossfading) {
+            const timeLeft = duration - currentTime;
+            if (timeLeft <= crossfadeSec && currentIndex < videoList.length - 1) {
+                startCrossfade();
+            }
         }
-    }, 500);
+    }, 1000);
 }
 
-function iniciarCrossfade() {
-    if (isCrossfading || playlist.length <= 1) return;
+function startCrossfade() {
     isCrossfading = true;
+    const nextIndex = currentIndex + 1;
 
-    const saliendoIndex = currentIndex;
-    const entrandoIndex = (currentIndex + 1) % playlist.length;
-    currentIndex = entrandoIndex;
+    const fadeOutPlayer = activePlayer === 'A' ? playerA : playerB;
+    const fadeInPlayer = activePlayer === 'A' ? playerB : playerA;
 
-    const curPlayer = activePlayer === 'A' ? playerA : playerB;
-    const nextPlayer = activePlayer === 'A' ? playerB : playerA;
+    const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
+    const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
-    nextPlayer.loadVideoById(playlist[entrandoIndex].id);
-    nextPlayer.setVolume(0);
-    nextPlayer.playVideo();
+    const currentTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
+    const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
 
-    actualizarEstado(playlist[saliendoIndex], playlist[entrandoIndex], true);
-    renderPlaylist();
+    // Actualización de estado en tiempo real para indicar salida y entrada
+    updateStatus(`
+        <span class="cf-outgoing">🔻 Saliendo: <strong>${currentTitle}</strong></span>
+        <span style="margin: 0 8px; opacity: 0.4;">|</span>
+        <span class="cf-incoming">🔺 Entrando: <strong>${nextTitle}</strong></span>
+    `);
 
-    let step = 0;
-    const steps = 20;
-    const intervalTime = (CROSSFADE_DURATION * 1000) / steps;
+    // Mostrar animación de vinilos al iniciar el crossfade
+    const vinylContainer = document.getElementById('vinyl-container');
+    if (vinylContainer) {
+        vinylContainer.classList.add('active');
+    }
 
-    const fadeInterval = setInterval(() => {
-        step++;
-        const volSaliendo = Math.max(0, Math.round(100 * (1 - step / steps)));
-        const volEntrando = Math.min(100, Math.round(100 * (step / steps)));
+    if (fadeOutDiv && fadeInDiv) {
+        fadeInDiv.style.zIndex = '2';
+        fadeInDiv.style.pointerEvents = 'auto';
+        
+        fadeOutDiv.style.zIndex = '1';
+        fadeOutDiv.style.pointerEvents = 'none';
 
-        if (typeof curPlayer.setVolume === 'function') curPlayer.setVolume(volSaliendo);
-        if (typeof nextPlayer.setVolume === 'function') nextPlayer.setVolume(volEntrando);
+        fadeInDiv.style.opacity = '1';
+        fadeOutDiv.style.opacity = '0';
+    }
 
-        if (step >= steps) {
+    if (fadeInPlayer && typeof fadeInPlayer.loadVideoById === 'function') {
+        fadeInPlayer.setVolume(0);
+        fadeInPlayer.loadVideoById(videoList[nextIndex]);
+        fadeInPlayer.playVideo();
+    }
+
+    const durationMs = crossfadeSec * 1000;
+    const intervalMs = 50;
+    const totalSteps = durationMs / intervalMs;
+    let currentStep = 0;
+
+    let fadeInterval = setInterval(() => {
+        currentStep++;
+        let progress = currentStep / totalSteps;
+
+        if (progress >= 1) {
             clearInterval(fadeInterval);
-            curPlayer.stopVideo();
+            if (fadeOutPlayer && typeof fadeOutPlayer.stopVideo === 'function') fadeOutPlayer.stopVideo();
             activePlayer = activePlayer === 'A' ? 'B' : 'A';
+            currentIndex = nextIndex;
             isCrossfading = false;
-            actualizarEstado(null, playlist[currentIndex], false);
+
+            // Ocultar animación de vinilos al finalizar la transición
+            if (vinylContainer) {
+                vinylContainer.classList.remove('active');
+            }
+
+            renderPlaylist();
+            updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}</strong>`);
+        } else {
+            if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
+            if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * 100));
         }
-    }, intervalTime);
+    }, intervalMs);
 }
 
-function reproducirPistaDirecta(index) {
-    if (!playlist[index]) return;
-    currentIndex = index;
-    const curPlayer = activePlayer === 'A' ? playerA : playerB;
-    if (curPlayer && typeof curPlayer.loadVideoById === 'function') {
-        curPlayer.loadVideoById(playlist[currentIndex].id);
-        curPlayer.setVolume(100);
-        actualizarEstado(null, playlist[currentIndex], false);
-        renderPlaylist();
-    }
-}
+// --- ESCUCHAR ACTUALIZACIONES EN TIEMPO REAL DESDE LA EXTENSIÓN ---
+if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.type === "UPDATE_PLAYLIST") {
+            // Guardar el video que está sonando actualmente para mantener su posición activa
+            const currentVideoId = videoList[currentIndex];
 
-function siguientePista() {
-    if (playlist.length === 0) return;
-    const nextIdx = (currentIndex + 1) % playlist.length;
-    reproducirPistaDirecta(nextIdx);
-}
+            // Actualizar arrays con la lista enviada por popup.js
+            videoList = request.videos || [];
+            videoTitles = request.titles || {};
 
-// ==========================================
-// EVENTOS DOM
-// ==========================================
+            // Reajustar currentIndex para no perder de vista la pista en reproducción
+            if (currentVideoId && videoList.includes(currentVideoId)) {
+                currentIndex = videoList.indexOf(currentVideoId);
+            } else if (currentIndex >= videoList.length) {
+                currentIndex = Math.max(0, videoList.length - 1);
+            }
 
-document.addEventListener('DOMContentLoaded', () => {
-    cargarPlaylistDesdeChrome();
-
-    const btn = document.getElementById('playlist-btn');
-    const container = document.getElementById('playlist-container');
-
-    if (btn && container) {
-        btn.addEventListener('click', () => {
-            const visible = container.style.display === 'flex';
-            container.style.display = visible ? 'none' : 'flex';
-        });
-    }
-
-    const refreshBtn = document.getElementById('refresh-playlist-btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            cargarPlaylistDesdeChrome();
-        });
-    }
-});
-
-function onYouTubeIframeAPIReady() {
-    initPlayers();
+            // Redibujar la lista desplegable en pantalla
+            renderPlaylist();
+        }
+    });
 }
