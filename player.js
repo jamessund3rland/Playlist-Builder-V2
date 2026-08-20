@@ -13,7 +13,6 @@ const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
 const titlesParam = urlParams.get('titles');
 const fadeParam = urlParams.get('crossfade');
-const extIdParam = urlParams.get('extId');
 const folderIdParam = urlParams.get('folderId');
 
 if (videosParam) {
@@ -46,6 +45,28 @@ function updateStatus(content) {
     if (el) el.innerHTML = content;
 }
 
+// --- Puente con la extensión vía postMessage (content-bridge.js) ---
+// No depende de ningún parámetro en la URL: si la extensión está activa
+// y actualizada, content-bridge.js contesta "PB_BRIDGE_READY" apenas
+// carga la página. Guardamos eso para saber si hay conexión disponible.
+let bridgeDisponible = false;
+let pedidoRefreshPendiente = null; // { resolve } del pedido en curso
+
+window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data) return;
+
+    if (event.data.type === 'PB_BRIDGE_READY') {
+        bridgeDisponible = true;
+        return;
+    }
+
+    if (event.data.type === 'PB_REFRESH_RESULT' && pedidoRefreshPendiente) {
+        const { resolve } = pedidoRefreshPendiente;
+        pedidoRefreshPendiente = null;
+        resolve(event.data);
+    }
+});
+
 function setupEvents() {
     const btn = document.getElementById('playlist-btn');
     const container = document.getElementById('playlist-container');
@@ -77,22 +98,38 @@ function recargarPlaylistDesdeMarcadores() {
         if (refreshBtn) setTimeout(() => refreshBtn.classList.remove('spinning'), 400);
     };
 
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage || !extIdParam) {
-        updateStatus('⚠️ No se pudo conectar con la extensión para actualizar.');
+    if (pedidoRefreshPendiente) {
+        // Ya hay un pedido en curso, no dupliques.
         finish();
         return;
     }
 
-    chrome.runtime.sendMessage(extIdParam, { type: 'RELOAD_BOOKMARKS', folderId: folderIdParam }, (response) => {
+    const timeoutId = setTimeout(() => {
+        if (!pedidoRefreshPendiente) return;
+        pedidoRefreshPendiente = null;
         finish();
+        updateStatus(
+            bridgeDisponible
+                ? '⚠️ No se pudo actualizar la playlist.'
+                : '⚠️ La extensión no responde en esta pestaña. Recargá esta página una vez (F5) para reconectar — después no va a hacer falta de nuevo.'
+        );
+    }, 4000);
 
-        if (chrome.runtime.lastError || !response || response.error) {
-            updateStatus('⚠️ No se pudo actualizar la playlist (¿está la extensión activa?).');
-            return;
+    pedidoRefreshPendiente = {
+        resolve: (data) => {
+            clearTimeout(timeoutId);
+            finish();
+
+            if (!data || data.error) {
+                updateStatus('⚠️ No se pudo actualizar la playlist.');
+                return;
+            }
+
+            aplicarActualizacionDeMarcadores(data.videos || [], data.titles || {});
         }
+    };
 
-        aplicarActualizacionDeMarcadores(response.videos || [], response.titles || {});
-    });
+    window.postMessage({ type: 'PB_REQUEST_REFRESH', folderId: folderIdParam }, '*');
 }
 
 function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
@@ -123,6 +160,8 @@ function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
         updateStatus('Playlist actualizada — sin cambios');
     }
 }
+
+
 
 function clearIndicators() {
     document.querySelectorAll('.playlist-item').forEach(el => {
