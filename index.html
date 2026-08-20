@@ -33,7 +33,7 @@
         #playerA { z-index: 2; pointer-events: auto; }
         #playerB { z-index: 1; pointer-events: none; opacity: 0; }
 
-        /* Capa transparente para bloquear sugeridos/recomendados */
+        /* FIX 1: Desactivar los eventos para que la esquina permita hacer clic en la linea de tiempo y pantalla completa */
         .yt-blocker-corner {
             position: fixed;
             bottom: 0;
@@ -45,70 +45,55 @@
             background: transparent;
         }
 
-        /* BARRA SUPERIOR COMPLETA CON FADE OUT SUAVE */
+        /* BARRA SUPERIOR DE ESTADO Y VINILOS */
         #top-status-bar {
             position: fixed;
             top: 60px;
             left: 20px;
+            right: 380px; /* Para abarcar todo el ancho hasta la lista */
             z-index: 9999;
             pointer-events: none;
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            opacity: 1;
-            transition: opacity 0.8s ease-in-out; /* Controla el desvanecimiento de todo el bloque */
-        }
-
-        /* Oculta la barra completa (texto + vinilos al mismo tiempo) */
-        #top-status-bar.fade-out {
-            opacity: 0 !important;
+            gap: 12px;
         }
 
         #status { 
             background: rgba(0,0,0,0.85); 
-            padding: 10px 16px; 
+            padding: 8px 16px; 
             border-radius: 20px; 
             font-size: 13px; 
             pointer-events: auto;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 6px;
+            display: inline-block;
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            white-space: nowrap;
-            overflow: hidden;
-            max-width: 650px;
+            width: 100%;
         }
 
-        .status-section {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
-
-        /* CONTENEDOR DE VINILOS */
+        /* FIX 2: Vinilos a cada extremo (uno a la izquierda y otro a la derecha) */
         #vinyl-container {
-            display: none;
-            justify-content: space-between;
-            align-items: center;
-            width: 360px;
-            margin-top: 10px;
-            box-sizing: border-box;
-            padding: 0 10px;
+            display: flex !important;
+            flex-direction: row !important;
+            justify-content: space-between !important;
+            width: 100%;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.8s ease-in-out;
+            margin-top: 5px;
+            padding: 0 20px;
         }
 
         #vinyl-container.active {
-            display: flex;
+            opacity: 1;
         }
 
+        /* FIX 3: Discos 250% más grandes (pasaron de 70px a 175px) */
         .vinyl-wrapper {
-            width: 105px !important;
-            height: 105px !important;
-            min-width: 105px;
-            min-height: 105px;
+            width: 175px !important;
+            height: 175px !important;
+            min-width: 175px;
+            min-height: 175px;
             position: relative;
             display: flex;
             align-items: center;
@@ -116,13 +101,13 @@
         }
 
         .vinyl {
-            width: 105px !important;
-            height: 105px !important;
+            width: 175px !important;
+            height: 175px !important;
             border-radius: 50%;
             object-fit: contain;
             display: block;
             animation: spinVinyl 2.5s linear infinite;
-            filter: drop-shadow(0px 4px 10px rgba(0, 0, 0, 0.9));
+            filter: drop-shadow(0px 4px 12px rgba(0, 0, 0, 0.9));
         }
 
         @keyframes spinVinyl {
@@ -130,7 +115,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* PLAYLIST DERECHA */
+        /* CONTENEDOR DE PLAYLIST A LA DERECHA */
         #playlist-wrapper {
             position: fixed;
             top: 60px;
@@ -204,10 +189,10 @@
         
         <!-- CONTENEDOR DE VINILOS -->
         <div id="vinyl-container">
-            <div class="vinyl-wrapper outgoing">
+            <div class="vinyl-wrapper">
                 <img id="vinyl-outgoing" class="vinyl" alt="" />
             </div>
-            <div class="vinyl-wrapper incoming">
+            <div class="vinyl-wrapper">
                 <img id="vinyl-incoming" class="vinyl" alt="" />
             </div>
         </div>
@@ -223,7 +208,7 @@
         </div>
     </div>
 
-    <!-- Script de carga de imágenes -->
+    <!-- Script de inyección directa de rutas de extensión -->
     <script>
         (function() {
             function loadImages() {
@@ -246,6 +231,7 @@
             }
         })();
     </script>
+
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="player.js"></script>
 </body>
