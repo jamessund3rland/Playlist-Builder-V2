@@ -13,6 +13,8 @@ const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
 const titlesParam = urlParams.get('titles');
 const fadeParam = urlParams.get('crossfade');
+const extIdParam = urlParams.get('extId');
+const folderIdParam = urlParams.get('folderId');
 
 if (videosParam) {
     videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
@@ -54,6 +56,71 @@ function setupEvents() {
             const isHidden = container.style.display === 'none' || container.style.display === '';
             container.style.display = isHidden ? 'flex' : 'none';
         };
+    }
+
+    const refreshBtn = document.getElementById('refresh-playlist-btn');
+    if (refreshBtn) {
+        refreshBtn.onclick = (e) => {
+            e.stopPropagation();
+            recargarPlaylistDesdeMarcadores();
+        };
+    }
+}
+
+// Vuelve a leer la carpeta de marcadores y agrega los temas nuevos
+// que se hayan sumado, sin reiniciar la playlist ni el reproductor.
+function recargarPlaylistDesdeMarcadores() {
+    const refreshBtn = document.getElementById('refresh-playlist-btn');
+    if (refreshBtn) refreshBtn.classList.add('spinning');
+
+    const finish = () => {
+        if (refreshBtn) setTimeout(() => refreshBtn.classList.remove('spinning'), 400);
+    };
+
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage || !extIdParam) {
+        updateStatus('⚠️ No se pudo conectar con la extensión para actualizar.');
+        finish();
+        return;
+    }
+
+    chrome.runtime.sendMessage(extIdParam, { type: 'RELOAD_BOOKMARKS', folderId: folderIdParam }, (response) => {
+        finish();
+
+        if (chrome.runtime.lastError || !response || response.error) {
+            updateStatus('⚠️ No se pudo actualizar la playlist (¿está la extensión activa?).');
+            return;
+        }
+
+        aplicarActualizacionDeMarcadores(response.videos || [], response.titles || {});
+    });
+}
+
+function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
+    if (!freshIds || freshIds.length === 0) {
+        updateStatus('No se encontraron videos en la carpeta.');
+        return;
+    }
+
+    const currentTrackId = videoList[currentIndex];
+
+    // Mantenemos el orden que ya armaste a mano para los temas que siguen
+    // en la carpeta, y agregamos al final los que sean nuevos, en el orden
+    // en que aparecen en la carpeta de marcadores.
+    const keptInOrder = videoList.filter(id => freshIds.includes(id));
+    const added = freshIds.filter(id => !videoList.includes(id));
+
+    videoList = [...keptInOrder, ...added];
+    videoTitles = { ...videoTitles, ...freshTitles };
+
+    currentIndex = videoList.indexOf(currentTrackId);
+    if (currentIndex === -1) currentIndex = 0;
+
+    renderPlaylist();
+
+    if (added.length > 0) {
+        updateStatus(`✅ ${added.length} tema${added.length > 1 ? 's' : ''} nuevo${added.length > 1 ? 's' : ''} agregado${added.length > 1 ? 's' : ''} a la playlist`);
+    } else {
+        updateStatus('Playlist actualizada — sin cambios');
     }
 }
 

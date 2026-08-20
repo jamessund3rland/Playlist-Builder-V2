@@ -153,8 +153,39 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.7);
         }
 
-        #playlist-header { font-size: 11px; color: #aaa; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #333; }
+        #playlist-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #333;
+        }
         #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; }
+
+        /* Botón rojo para releer la carpeta de marcadores sin reiniciar todo */
+        #refresh-playlist-btn {
+            background: #ff0000;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            min-width: 24px;
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+        #refresh-playlist-btn:hover { background: #cc0000; }
+        #refresh-playlist-btn.spinning { animation: spinRefresh 0.6s linear; }
+        @keyframes spinRefresh { to { transform: rotate(360deg); } }
 
         .playlist-item { 
             background: #282828; 
@@ -171,6 +202,22 @@
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
+
+        /* Línea roja indicadora de dónde quedará el track al soltarlo */
+        .playlist-item.drop-indicator-above::before,
+        .playlist-item.drop-indicator-below::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            right: 4px;
+            height: 3px;
+            background: #ff0000;
+            border-radius: 2px;
+            box-shadow: 0 0 6px 1px rgba(255, 0, 0, 0.8);
+            pointer-events: none;
+        }
+        .playlist-item.drop-indicator-above::before { top: -4px; }
+        .playlist-item.drop-indicator-below::after { bottom: -4px; }
 
         .cf-outgoing { color: #aaa; }
         .cf-incoming { color: #00e5ff; font-weight: bold; }
@@ -203,6 +250,7 @@
         <div id="playlist-container">
             <div id="playlist-header">
                 <span>Crossfade: <strong id="fade-info">10s</strong></span>
+                <button id="refresh-playlist-btn" title="Actualizar playlist desde la carpeta de marcadores">⟳</button>
             </div>
             <div id="playlist-items"></div>
         </div>
