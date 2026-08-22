@@ -18,6 +18,9 @@ let shuffleCycleStarted = false;
 let notificationsOn = false;
 let favoritos = {};
 let mostrarSoloFavoritos = false;
+let masterVolume = 100;
+let fontScale = 1;
+let highContrastOn = false;
 
 try { shuffleOn = localStorage.getItem('pb_shuffle') === '1'; } catch (e) {}
 try {
@@ -26,6 +29,25 @@ try {
 } catch (e) {}
 try { notificationsOn = localStorage.getItem('pb_notify') === '1'; } catch (e) {}
 try { favoritos = JSON.parse(localStorage.getItem('pb_favoritos') || '{}'); } catch (e) { favoritos = {}; }
+try {
+    const savedVol = localStorage.getItem('pb_master_volume');
+    if (savedVol !== null) masterVolume = parseInt(savedVol, 10);
+} catch (e) {}
+if (isNaN(masterVolume) || masterVolume < 0 || masterVolume > 100) masterVolume = 100;
+try {
+    const savedFontScale = localStorage.getItem('pb_font_scale');
+    if (savedFontScale !== null) fontScale = parseFloat(savedFontScale);
+} catch (e) {}
+if (isNaN(fontScale) || fontScale < 0.7 || fontScale > 1.6) fontScale = 1;
+try { highContrastOn = localStorage.getItem('pb_high_contrast') === '1'; } catch (e) {}
+
+// --- Feature 23/24: precarga y vista previa del siguiente tema ---
+let nextIndexCache = null;
+let preloadedTrackId = null;
+let pendingIdByPlayer = { A: null, B: null };
+
+// --- Feature 28: links rotos ---
+let brokenTrackIds = new Set();
 
 // Parseo de parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -91,11 +113,89 @@ window.addEventListener('message', (event) => {
     }
 });
 
+// --- Feature 35: sincronizar preferencias entre pestañas de la misma carpeta ---
+// 'storage' solo dispara en OTRAS pestañas del mismo origen, no en la que hizo el cambio.
+window.addEventListener('storage', (event) => {
+    if (!event.key) return;
+
+    switch (event.key) {
+        case 'pb_favoritos':
+            try { favoritos = JSON.parse(event.newValue || '{}'); } catch (e) { favoritos = {}; }
+            renderPlaylist();
+            break;
+
+        case 'pb_shuffle': {
+            shuffleOn = event.newValue === '1';
+            shuffleBag = [];
+            shuffleCycleStarted = false;
+            nextIndexCache = null;
+            const shuffleBtn = document.getElementById('shuffle-btn');
+            if (shuffleBtn) shuffleBtn.classList.toggle('active', shuffleOn);
+            break;
+        }
+
+        case 'pb_repeat':
+            repeatMode = (event.newValue === 'all' || event.newValue === 'one') ? event.newValue : 'off';
+            nextIndexCache = null;
+            renderRepeatBtn();
+            break;
+
+        case 'pb_crossfade_sec':
+            crossfadeSec = parseInt(event.newValue, 10) || crossfadeSec;
+            syncCrossfadeUI();
+            break;
+
+        case 'pb_master_volume':
+            masterVolume = parseInt(event.newValue, 10);
+            if (isNaN(masterVolume)) masterVolume = 100;
+            syncVolumeUI();
+            break;
+
+        case 'pb_notify': {
+            notificationsOn = event.newValue === '1';
+            const notifyBtn = document.getElementById('notify-btn');
+            if (notifyBtn) {
+                notifyBtn.classList.toggle('active', notificationsOn);
+                notifyBtn.title = notificationsOn ? 'Notificaciones: activadas' : 'Notificaciones: desactivadas';
+            }
+            break;
+        }
+
+        case 'pb_font_scale':
+            fontScale = parseFloat(event.newValue);
+            if (isNaN(fontScale)) fontScale = 1;
+            applyFontScale();
+            break;
+
+        case 'pb_high_contrast':
+            highContrastOn = event.newValue === '1';
+            applyHighContrast();
+            break;
+    }
+});
+
 function syncCrossfadeUI() {
     const fadeInfo = document.getElementById('fade-info');
     if (fadeInfo) fadeInfo.textContent = `${crossfadeSec}s`;
     const slider = document.getElementById('crossfade-slider');
     if (slider && parseInt(slider.value, 10) !== crossfadeSec) slider.value = crossfadeSec;
+}
+
+function syncVolumeUI() {
+    const volumeInfo = document.getElementById('volume-info');
+    if (volumeInfo) volumeInfo.textContent = `${masterVolume}%`;
+    const slider = document.getElementById('master-volume-slider');
+    if (slider && parseInt(slider.value, 10) !== masterVolume) slider.value = masterVolume;
+}
+
+function applyFontScale() {
+    document.documentElement.style.setProperty('--pb-font-scale', fontScale);
+}
+
+function applyHighContrast() {
+    document.body.classList.toggle('high-contrast', highContrastOn);
+    const contrastBtn = document.getElementById('contrast-btn');
+    if (contrastBtn) contrastBtn.classList.toggle('active', highContrastOn);
 }
 
 function renderRepeatBtn() {
@@ -119,6 +219,9 @@ function notifyTrackIfNeeded(title) {
 }
 
 function setupEvents() {
+    applyFontScale();
+    applyHighContrast();
+
     const btn = document.getElementById('playlist-btn');
     const container = document.getElementById('playlist-container');
 
@@ -159,6 +262,7 @@ function setupEvents() {
             shuffleOn = !shuffleOn;
             shuffleBag = [];
             shuffleCycleStarted = false;
+            nextIndexCache = null;
             shuffleBtn.classList.toggle('active', shuffleOn);
             try { localStorage.setItem('pb_shuffle', shuffleOn ? '1' : '0'); } catch (e) {}
         };
@@ -171,6 +275,7 @@ function setupEvents() {
         repeatBtn.onclick = (e) => {
             e.stopPropagation();
             repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+            nextIndexCache = null;
             renderRepeatBtn();
             try { localStorage.setItem('pb_repeat', repeatMode); } catch (e) {}
         };
@@ -190,6 +295,56 @@ function setupEvents() {
         };
     }
 
+    // Volumen maestro
+    const volumeSlider = document.getElementById('master-volume-slider');
+    if (volumeSlider) {
+        syncVolumeUI();
+        volumeSlider.addEventListener('click', (e) => e.stopPropagation());
+        volumeSlider.addEventListener('input', () => {
+            masterVolume = parseInt(volumeSlider.value, 10);
+            syncVolumeUI();
+            try { localStorage.setItem('pb_master_volume', String(masterVolume)); } catch (e) {}
+
+            if (!isCrossfading) {
+                const activePlayerObj = activePlayer === 'A' ? playerA : playerB;
+                if (activePlayerObj && typeof activePlayerObj.setVolume === 'function') {
+                    activePlayerObj.setVolume(masterVolume);
+                }
+            }
+        });
+    }
+
+    // Tamaño de letra
+    const fontDecBtn = document.getElementById('font-decrease-btn');
+    const fontIncBtn = document.getElementById('font-increase-btn');
+    if (fontDecBtn) {
+        fontDecBtn.onclick = (e) => {
+            e.stopPropagation();
+            fontScale = Math.max(0.7, Math.round((fontScale - 0.1) * 10) / 10);
+            applyFontScale();
+            try { localStorage.setItem('pb_font_scale', String(fontScale)); } catch (e) {}
+        };
+    }
+    if (fontIncBtn) {
+        fontIncBtn.onclick = (e) => {
+            e.stopPropagation();
+            fontScale = Math.min(1.6, Math.round((fontScale + 0.1) * 10) / 10);
+            applyFontScale();
+            try { localStorage.setItem('pb_font_scale', String(fontScale)); } catch (e) {}
+        };
+    }
+
+    // Alto contraste
+    const contrastBtn = document.getElementById('contrast-btn');
+    if (contrastBtn) {
+        contrastBtn.onclick = (e) => {
+            e.stopPropagation();
+            highContrastOn = !highContrastOn;
+            applyHighContrast();
+            try { localStorage.setItem('pb_high_contrast', highContrastOn ? '1' : '0'); } catch (e) {}
+        };
+    }
+
     // Filtro de favoritos
     const favFilterBtn = document.getElementById('fav-filter-btn');
     if (favFilterBtn) {
@@ -202,6 +357,8 @@ function setupEvents() {
             favFilterBtn.title = mostrarSoloFavoritos ? 'Mostrando solo favoritos (tocá para ver todos)' : 'Mostrar solo favoritos';
             shuffleBag = [];
             shuffleCycleStarted = false;
+            nextIndexCache = null;
+            preloadedTrackId = null;
             renderPlaylist();
 
             if (mostrarSoloFavoritos) {
@@ -279,6 +436,9 @@ function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
 
     shuffleBag = [];
     shuffleCycleStarted = false;
+    nextIndexCache = null;
+    preloadedTrackId = null;
+    brokenTrackIds.clear();
 
     currentIndex = videoList.indexOf(currentTrackId);
     if (currentIndex === -1) currentIndex = 0;
@@ -305,9 +465,28 @@ function toggleFavorito(id) {
     if (mostrarSoloFavoritos) {
         shuffleBag = [];
         shuffleCycleStarted = false;
+        nextIndexCache = null;
     }
 
     renderPlaylist();
+}
+
+// Salta directamente a un track (click manual o recuperación tras un link roto).
+function saltarATrack(index) {
+    currentIndex = index;
+    const targetPlayer = activePlayer === 'A' ? playerA : playerB;
+    if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
+        pendingIdByPlayer[activePlayer] = videoList[currentIndex];
+        targetPlayer.loadVideoById(videoList[currentIndex]);
+        targetPlayer.setVolume(masterVolume);
+        targetPlayer.playVideo();
+        nextIndexCache = null;
+        preloadedTrackId = null;
+        renderPlaylist();
+        const title = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
+        updateStatus(`▶ Sonando: <strong>${title}</strong>`);
+        notifyTrackIfNeeded(title);
+    }
 }
 
 function removeTrackFromSession(index) {
@@ -325,6 +504,8 @@ function removeTrackFromSession(index) {
     if (index < currentIndex) currentIndex--;
 
     shuffleBag = shuffleBag.filter(id => id !== removedId);
+    nextIndexCache = null;
+    preloadedTrackId = null;
 
     renderPlaylist();
     updateStatus('Tema quitado de esta playlist (el marcador original sigue intacto).');
@@ -385,6 +566,60 @@ function decideNextIndex() {
     return repeatMode === 'all' ? videoList.indexOf(pool[0]) : -1;
 }
 
+// Envuelve decideNextIndex() en una caché: shuffle "consume" de la bolsa
+// cada vez que se llama, así que decidimos una sola vez por ciclo y
+// reusamos el resultado para precarga, vista previa y el crossfade real.
+function getUpcomingIndex() {
+    if (nextIndexCache === null) {
+        nextIndexCache = decideNextIndex();
+    }
+    return nextIndexCache;
+}
+
+// --- Feature 23: precarga silenciosa del próximo tema ---
+function preloadNextTrack(nextIndex) {
+    if (nextIndex === -1) return;
+    const nextId = videoList[nextIndex];
+    if (preloadedTrackId === nextId) return; // ya está precargado
+
+    const idleLabel = activePlayer === 'A' ? 'B' : 'A';
+    const idlePlayer = idleLabel === 'A' ? playerA : playerB;
+
+    if (idlePlayer && typeof idlePlayer.cueVideoById === 'function') {
+        try {
+            idlePlayer.cueVideoById(nextId);
+            idlePlayer.setVolume(0);
+            preloadedTrackId = nextId;
+            pendingIdByPlayer[idleLabel] = nextId;
+        } catch (e) {
+            preloadedTrackId = null;
+        }
+    }
+}
+
+// --- Feature 24: vista previa del próximo tema (nombre + miniatura) ---
+function updateNextTrackPreview(nextIndex) {
+    const el = document.getElementById('next-track-preview');
+    const thumb = document.getElementById('next-track-thumb');
+    const titleEl = document.getElementById('next-track-title');
+    if (!el || !thumb || !titleEl) return;
+
+    if (nextIndex === -1) {
+        el.classList.remove('active');
+        return;
+    }
+
+    const nextId = videoList[nextIndex];
+    thumb.src = `https://img.youtube.com/vi/${nextId}/mqdefault.jpg`;
+    titleEl.textContent = videoTitles[nextId] || `Track ${nextIndex + 1}`;
+    el.classList.add('active');
+}
+
+function hideNextTrackPreview() {
+    const el = document.getElementById('next-track-preview');
+    if (el) el.classList.remove('active');
+}
+
 function showCrossfadeCountdown(secsToFade) {
     const el = document.getElementById('crossfade-preview');
     const fill = document.getElementById('crossfade-preview-fill');
@@ -414,8 +649,13 @@ function renderPlaylist() {
 
     if (btn) btn.textContent = `≡ Playlist (${videoList.length})`;
     syncCrossfadeUI();
+    syncVolumeUI();
 
     if (!container) return;
+
+    // Feature 40: no perder la posición de scroll al reordenar/refrescar/actualizar favoritos
+    const previousScrollTop = container.scrollTop;
+
     container.innerHTML = '';
 
     let draggedIndex = null;
@@ -427,14 +667,14 @@ function renderPlaylist() {
         visibleCount++;
 
         const item = document.createElement('div');
-        item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
+        item.className = `playlist-item ${index === currentIndex ? 'active' : ''}${brokenTrackIds.has(id) ? ' broken-track' : ''}`;
         item.draggable = !filtroActivo;
         item.dataset.index = index;
 
         const titleSpan = document.createElement('span');
         titleSpan.className = 'playlist-item-title';
         const title = videoTitles[id] || `Track ${index + 1}`;
-        titleSpan.textContent = `${index + 1}. ${title}`;
+        titleSpan.textContent = `${index + 1}. ${title}${brokenTrackIds.has(id) ? ' ⚠️' : ''}`;
 
         const starBtn = document.createElement('button');
         starBtn.className = 'star-track-btn' + (favoritos[id] ? ' active' : '');
@@ -464,15 +704,7 @@ function renderPlaylist() {
 
         item.onclick = (e) => {
             if (item.classList.contains('dragging')) return;
-            currentIndex = index;
-            const targetPlayer = activePlayer === 'A' ? playerA : playerB;
-            if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
-                targetPlayer.loadVideoById(videoList[currentIndex]);
-                targetPlayer.playVideo();
-                renderPlaylist();
-                updateStatus(`▶ Sonando: <strong>${title}</strong>`);
-                notifyTrackIfNeeded(title);
-            }
+            saltarATrack(index);
         };
 
         if (!filtroActivo) {
@@ -527,6 +759,8 @@ function renderPlaylist() {
                 currentIndex = videoList.indexOf(currentTrackId);
                 shuffleBag = [];
                 shuffleCycleStarted = false;
+                nextIndexCache = null;
+                preloadedTrackId = null;
                 renderPlaylist();
             });
         }
@@ -540,6 +774,8 @@ function renderPlaylist() {
         empty.textContent = 'No marcaste ningún favorito todavía. Tocá la ☆ de un tema para agregarlo.';
         container.appendChild(empty);
     }
+
+    container.scrollTop = previousScrollTop;
 }
 
 function onYouTubeIframeAPIReady() {
@@ -549,6 +785,7 @@ function onYouTubeIframeAPIReady() {
     updateStatus("Cargando reproductor...");
 
     const origin = window.location.origin;
+    pendingIdByPlayer.A = videoList[0];
 
     playerA = new YT.Player('playerA', {
         height: '100%',
@@ -563,17 +800,14 @@ function onYouTubeIframeAPIReady() {
         },
         events: {
             'onReady': (e) => {
-                e.target.setVolume(100);
+                e.target.setVolume(masterVolume);
                 e.target.playVideo();
                 startPlaybackMonitor();
                 const initialTitle = videoTitles[videoList[0]] || 'Track 1';
                 updateStatus(`▶ Sonando: <strong>${initialTitle}</strong>`);
                 notifyTrackIfNeeded(initialTitle);
             },
-            'onError': (e) => {
-                console.error("Error en Player A:", e.data);
-                updateStatus("Error al cargar video de YouTube");
-            }
+            'onError': (e) => handlePlayerError('A', e.data)
         }
     });
 
@@ -586,9 +820,58 @@ function onYouTubeIframeAPIReady() {
             'rel': 0, 
             'iv_load_policy': 3,
             'origin': origin 
+        },
+        events: {
+            'onError': (e) => handlePlayerError('B', e.data)
         }
     });
 }
+
+// --- Feature 28: detectar links rotos y saltarlos automáticamente ---
+function handlePlayerError(playerLabel, errorCode) {
+    const videoId = pendingIdByPlayer[playerLabel];
+    if (!videoId) return;
+
+    const errorMessages = {
+        2: 'ID de video inválido',
+        5: 'Error de reproducción',
+        100: 'video no encontrado o eliminado',
+        101: 'el dueño no permite reproducirlo embebido',
+        150: 'el dueño no permite reproducirlo embebido'
+    };
+    const reason = errorMessages[errorCode] || 'error desconocido';
+
+    brokenTrackIds.add(videoId);
+    const brokenIndex = videoList.indexOf(videoId);
+    const brokenTitle = videoTitles[videoId] || (brokenIndex !== -1 ? `Track ${brokenIndex + 1}` : 'este tema');
+
+    console.error(`Playlist Builder: no se pudo reproducir "${brokenTitle}" (${videoId}) — ${reason}`);
+    renderPlaylist();
+
+    // Solo saltamos automáticamente si el error ocurrió en el reproductor
+    // que está activo en este momento (si fue el de precarga, ya lo
+    // resolvemos de nuevo al llegar el turno real del crossfade).
+    if (playerLabel !== activePlayer) return;
+
+    updateStatus(`⚠️ No se pudo reproducir "<strong>${brokenTitle}</strong>" (${reason}). Saltando al siguiente...`);
+
+    nextIndexCache = null;
+    const nextIndex = decideNextIndex();
+
+    if (nextIndex === -1) {
+        updateStatus('⚠️ No se pudo reproducir el tema y no hay más para seguir.');
+        return;
+    }
+
+    const nextId = videoList[nextIndex];
+    if (brokenTrackIds.has(nextId) && brokenTrackIds.size >= videoList.length) {
+        updateStatus('⚠️ Ningún tema de esta playlist se pudo reproducir. Revisá los marcadores.');
+        return;
+    }
+
+    setTimeout(() => saltarATrack(nextIndex), 1200);
+}
+
 
 function startPlaybackMonitor() {
     if (checkInterval) clearInterval(checkInterval);
@@ -605,14 +888,20 @@ function startPlaybackMonitor() {
 
             if (timeLeft <= crossfadeSec) {
                 hideCrossfadeCountdown();
-                const nextIndex = decideNextIndex();
+                hideNextTrackPreview();
+                const nextIndex = getUpcomingIndex();
+                nextIndexCache = null; // se reinicia para el próximo ciclo
                 if (nextIndex !== -1) {
                     startCrossfade(nextIndex);
                 }
             } else if (timeLeft <= crossfadeSec + CROSSFADE_PREVIEW_LEAD) {
                 showCrossfadeCountdown(Math.ceil(timeLeft - crossfadeSec));
+                const nextIndex = getUpcomingIndex();
+                updateNextTrackPreview(nextIndex);
+                preloadNextTrack(nextIndex);
             } else {
                 hideCrossfadeCountdown();
+                hideNextTrackPreview();
             }
         }
     }, 1000);
@@ -623,12 +912,14 @@ function startCrossfade(nextIndex) {
 
     const fadeOutPlayer = activePlayer === 'A' ? playerA : playerB;
     const fadeInPlayer = activePlayer === 'A' ? playerB : playerA;
+    const fadeInLabel = activePlayer === 'A' ? 'B' : 'A';
 
     const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
     const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
     const currentTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
     const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
+    const nextId = videoList[nextIndex];
 
     // Actualización de estado en tiempo real para indicar salida y entrada
     updateStatus(`
@@ -656,8 +947,17 @@ function startCrossfade(nextIndex) {
 
     if (fadeInPlayer && typeof fadeInPlayer.loadVideoById === 'function') {
         fadeInPlayer.setVolume(0);
-        fadeInPlayer.loadVideoById(videoList[nextIndex]);
-        fadeInPlayer.playVideo();
+        pendingIdByPlayer[fadeInLabel] = nextId;
+
+        // Feature 23: si ya lo precargamos (cueVideoById), evitamos volver a
+        // pedirlo — arranca más rápido y sin el pequeño salto de carga.
+        if (preloadedTrackId === nextId) {
+            fadeInPlayer.playVideo();
+        } else {
+            fadeInPlayer.loadVideoById(nextId);
+            fadeInPlayer.playVideo();
+        }
+        preloadedTrackId = null;
     }
 
     const durationMs = crossfadeSec * 1000;
@@ -686,8 +986,8 @@ function startCrossfade(nextIndex) {
             updateStatus(`▶ Sonando: <strong>${newTitle}</strong>`);
             notifyTrackIfNeeded(newTitle);
         } else {
-            if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
-            if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * 100));
+            if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * masterVolume));
+            if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * masterVolume));
         }
     }, intervalMs);
 }

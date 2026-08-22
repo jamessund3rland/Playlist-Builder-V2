@@ -9,6 +9,7 @@
     <link rel="icon" type="image/png" href="logo.png?v=2">
 
     <style>
+        :root { --pb-font-scale: 1; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
         body, html { width: 100%; height: 100%; background: #000; overflow: hidden; color: #fff; }
         
@@ -63,13 +64,39 @@
             background: rgba(0,0,0,0.85); 
             padding: 8px 16px; 
             border-radius: 20px; 
-            font-size: 13px; 
+            font-size: calc(13px * var(--pb-font-scale)); 
             pointer-events: auto;
             display: inline-block;
             border: 1px solid #333;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             width: 100%;
         }
+
+        /* Feature 24: vista previa del próximo tema */
+        #next-track-preview {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            background: rgba(0,0,0,0.75);
+            padding: 6px 12px 6px 6px;
+            border-radius: 14px;
+            font-size: calc(11px * var(--pb-font-scale));
+            color: #ccc;
+            pointer-events: none;
+            border: 1px solid #333;
+            width: fit-content;
+        }
+        #next-track-preview.active { display: flex; }
+        #next-track-thumb {
+            width: 42px;
+            height: 42px;
+            border-radius: 6px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        #next-track-info { display: flex; flex-direction: column; gap: 2px; max-width: 220px; }
+        .next-track-label { font-size: calc(9px * var(--pb-font-scale)); text-transform: uppercase; letter-spacing: 0.05em; color: #ff8a00; font-weight: bold; }
+        #next-track-title { color: #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         /* FIX 2: Vinilos a cada extremo (uno a la izquierda y otro a la derecha) */
         #vinyl-container {
@@ -136,6 +163,7 @@
             padding: 10px 18px; 
             border-radius: 20px; 
             font-weight: bold; 
+            font-size: calc(13px * var(--pb-font-scale));
             cursor: pointer; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
@@ -163,16 +191,16 @@
         }
         #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; }
 
-        /* Fila 1: slider de crossfade ocupando el ancho disponible */
-        #crossfade-control {
+        /* Fila: slider de crossfade y de volumen maestro, ambos ocupando el ancho disponible */
+        #crossfade-control, #volume-control {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 11px;
+            font-size: calc(11px * var(--pb-font-scale));
             color: #aaa;
         }
-        #crossfade-control label { flex-shrink: 0; }
-        #crossfade-slider {
+        #crossfade-control label, #volume-control label { flex-shrink: 0; }
+        #crossfade-slider, #master-volume-slider {
             flex: 1;
             -webkit-appearance: none;
             appearance: none;
@@ -182,7 +210,7 @@
             outline: none;
             cursor: pointer;
         }
-        #crossfade-slider::-webkit-slider-thumb {
+        #crossfade-slider::-webkit-slider-thumb, #master-volume-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
             width: 14px;
             height: 14px;
@@ -191,7 +219,7 @@
             cursor: pointer;
             box-shadow: 0 0 4px rgba(255, 42, 0, 0.8);
         }
-        #crossfade-slider::-moz-range-thumb {
+        #crossfade-slider::-moz-range-thumb, #master-volume-slider::-moz-range-thumb {
             width: 14px;
             height: 14px;
             border-radius: 50%;
@@ -200,10 +228,10 @@
             border: none;
             box-shadow: 0 0 4px rgba(255, 42, 0, 0.8);
         }
-        #fade-info { flex-shrink: 0; min-width: 26px; text-align: right; color: #eee; font-weight: bold; }
+        #fade-info, #volume-info { flex-shrink: 0; min-width: 30px; text-align: right; color: #eee; font-weight: bold; font-size: calc(11px * var(--pb-font-scale)); }
 
-        /* Fila 2: botones de control alineados a la derecha */
-        #playlist-controls-row {
+        /* Fila de botones de control alineados a la derecha */
+        #playlist-controls-row, #accessibility-row {
             display: flex;
             justify-content: flex-end;
             align-items: center;
@@ -215,10 +243,10 @@
             color: #eee;
             border: none;
             border-radius: 50%;
-            width: 26px;
-            height: 26px;
-            min-width: 26px;
-            font-size: 13px;
+            width: calc(26px * var(--pb-font-scale));
+            height: calc(26px * var(--pb-font-scale));
+            min-width: calc(26px * var(--pb-font-scale));
+            font-size: calc(13px * var(--pb-font-scale));
             line-height: 1;
             cursor: pointer;
             display: flex;
@@ -229,6 +257,7 @@
         }
         .control-icon-btn:hover { background: #3a3a3a; }
         .control-icon-btn.active { background: #ff2a00; color: #fff; }
+        .control-icon-btn.text-btn { width: auto; padding: 0 8px; border-radius: 13px; font-weight: bold; }
 
         /* Botón rojo para releer la carpeta de marcadores sin reiniciar todo */
         #refresh-playlist-btn { background: #ff0000; color: #fff; }
@@ -240,7 +269,7 @@
             background: #282828; 
             padding: 10px; 
             border-radius: 6px; 
-            font-size: 12px; 
+            font-size: calc(12px * var(--pb-font-scale)); 
             color: #eee; 
             cursor: grab; 
             user-select: none;
@@ -254,6 +283,7 @@
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
+        .playlist-item.broken-track { opacity: 0.5; text-decoration: line-through; }
 
         .playlist-item-title { flex: 1; }
 
@@ -268,7 +298,7 @@
             background: transparent;
             border: none;
             cursor: pointer;
-            font-size: 13px;
+            font-size: calc(13px * var(--pb-font-scale));
             padding: 2px 4px;
             color: #888;
             opacity: 0;
@@ -285,7 +315,7 @@
 
         .playlist-empty-msg {
             color: #888;
-            font-size: 12px;
+            font-size: calc(12px * var(--pb-font-scale));
             padding: 16px 8px;
             text-align: center;
         }
@@ -337,6 +367,42 @@
             width: 0%;
             transition: width 0.3s linear;
         }
+
+        /* Feature 37: alto contraste */
+        body.high-contrast #status,
+        body.high-contrast #next-track-preview,
+        body.high-contrast #crossfade-preview {
+            background: #000;
+            border: 2px solid #fff;
+        }
+        body.high-contrast #playlist-container {
+            background: #000;
+            border: 2px solid #fff;
+        }
+        body.high-contrast .playlist-item {
+            background: #000;
+            border: 1px solid #777;
+            color: #fff;
+        }
+        body.high-contrast .playlist-item.active {
+            background: #ff0000;
+            color: #000;
+            border: 2px solid #fff;
+            font-weight: bold;
+        }
+        body.high-contrast .control-icon-btn {
+            background: #000;
+            border: 1px solid #fff;
+            color: #fff;
+        }
+        body.high-contrast .control-icon-btn.active {
+            background: #ff0000;
+            border: 2px solid #fff;
+            color: #fff;
+        }
+        body.high-contrast #playlist-btn {
+            border: 2px solid #fff;
+        }
     </style>
 </head>
 <body>
@@ -353,6 +419,14 @@
         <div id="crossfade-preview">
             <div id="crossfade-preview-bar"><div id="crossfade-preview-fill"></div></div>
             <span id="crossfade-preview-text"></span>
+        </div>
+
+        <div id="next-track-preview">
+            <img id="next-track-thumb" alt="">
+            <div id="next-track-info">
+                <span class="next-track-label">Sigue</span>
+                <span id="next-track-title"></span>
+            </div>
         </div>
         
         <!-- CONTENEDOR DE VINILOS -->
@@ -375,12 +449,22 @@
                     <input type="range" id="crossfade-slider" min="1" max="30" step="1" value="10">
                     <span id="fade-info">10s</span>
                 </div>
+                <div id="volume-control">
+                    <label for="master-volume-slider">🔊</label>
+                    <input type="range" id="master-volume-slider" min="0" max="100" step="1" value="100">
+                    <span id="volume-info">100%</span>
+                </div>
                 <div id="playlist-controls-row">
                     <button id="fav-filter-btn" class="control-icon-btn" title="Mostrar solo favoritos">★</button>
                     <button id="notify-btn" class="control-icon-btn" title="Notificaciones de escritorio">🔔</button>
                     <button id="shuffle-btn" class="control-icon-btn" title="Orden aleatorio">🔀</button>
                     <button id="repeat-btn" class="control-icon-btn" title="Repetir: apagado">🔁</button>
                     <button id="refresh-playlist-btn" class="control-icon-btn" title="Actualizar playlist desde la carpeta de marcadores">⟳</button>
+                </div>
+                <div id="accessibility-row">
+                    <button id="font-decrease-btn" class="control-icon-btn text-btn" title="Reducir tamaño de letra">A−</button>
+                    <button id="font-increase-btn" class="control-icon-btn text-btn" title="Aumentar tamaño de letra">A+</button>
+                    <button id="contrast-btn" class="control-icon-btn" title="Alto contraste">◐</button>
                 </div>
             </div>
             <div id="playlist-items"></div>
