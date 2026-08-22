@@ -155,34 +155,83 @@
 
         #playlist-header {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 11px;
-            color: #aaa;
+            flex-direction: column;
+            gap: 8px;
             margin-bottom: 8px;
-            padding-bottom: 6px;
+            padding-bottom: 8px;
             border-bottom: 1px solid #333;
         }
         #playlist-items { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; max-height: 70vh; }
 
-        /* Botón rojo para releer la carpeta de marcadores sin reiniciar todo */
-        #refresh-playlist-btn {
-            background: #ff0000;
-            color: #fff;
+        /* Fila 1: slider de crossfade ocupando el ancho disponible */
+        #crossfade-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: #aaa;
+        }
+        #crossfade-control label { flex-shrink: 0; }
+        #crossfade-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        #crossfade-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #ff2a00;
+            cursor: pointer;
+            box-shadow: 0 0 4px rgba(255, 42, 0, 0.8);
+        }
+        #crossfade-slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #ff2a00;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 4px rgba(255, 42, 0, 0.8);
+        }
+        #fade-info { flex-shrink: 0; min-width: 26px; text-align: right; color: #eee; font-weight: bold; }
+
+        /* Fila 2: botones de control alineados a la derecha */
+        #playlist-controls-row {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-icon-btn {
+            background: #282828;
+            color: #eee;
             border: none;
             border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            min-width: 24px;
+            width: 26px;
+            height: 26px;
+            min-width: 26px;
             font-size: 13px;
             line-height: 1;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
-            transition: background 0.2s ease, transform 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
         }
+        .control-icon-btn:hover { background: #3a3a3a; }
+        .control-icon-btn.active { background: #ff2a00; color: #fff; }
+
+        /* Botón rojo para releer la carpeta de marcadores sin reiniciar todo */
+        #refresh-playlist-btn { background: #ff0000; color: #fff; }
         #refresh-playlist-btn:hover { background: #cc0000; }
         #refresh-playlist-btn.spinning { animation: spinRefresh 0.6s linear; }
         @keyframes spinRefresh { to { transform: rotate(360deg); } }
@@ -196,12 +245,50 @@
             cursor: grab; 
             user-select: none;
             position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             transition: background 0.2s;
         } 
         
         .playlist-item:hover { background: #383838; }
         .playlist-item.active { background: #ff2a00; color: #fff; font-weight: bold; }
         .playlist-item.dragging { opacity: 0.3; }
+
+        .playlist-item-title { flex: 1; }
+
+        .playlist-item-actions {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+
+        .star-track-btn, .remove-track-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 2px 4px;
+            color: #888;
+            opacity: 0;
+            transition: opacity 0.15s ease, color 0.15s ease;
+        }
+        .playlist-item:hover .star-track-btn,
+        .playlist-item:hover .remove-track-btn { opacity: 1; }
+        .star-track-btn.active { opacity: 1; color: #ffd23f; }
+        .star-track-btn:hover { color: #ffd23f; }
+        .remove-track-btn:hover { color: #ff4444; }
+        .playlist-item.active .star-track-btn,
+        .playlist-item.active .remove-track-btn { color: rgba(255,255,255,0.75); }
+        .playlist-item.active .star-track-btn.active { color: #fff176; }
+
+        .playlist-empty-msg {
+            color: #888;
+            font-size: 12px;
+            padding: 16px 8px;
+            text-align: center;
+        }
 
         /* Línea roja indicadora de dónde quedará el track al soltarlo */
         .playlist-item.drop-indicator-above::before,
@@ -221,6 +308,35 @@
 
         .cf-outgoing { color: #aaa; }
         .cf-incoming { color: #00e5ff; font-weight: bold; }
+
+        /* Aviso de "faltan X seg para el crossfade" (feature 12) */
+        #crossfade-preview {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0,0,0,0.75);
+            padding: 6px 14px;
+            border-radius: 14px;
+            font-size: 11px;
+            color: #ccc;
+            pointer-events: none;
+            border: 1px solid #333;
+            width: fit-content;
+        }
+        #crossfade-preview.active { display: flex; }
+        #crossfade-preview-bar {
+            width: 100px;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        #crossfade-preview-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff2a00, #ff8a00);
+            width: 0%;
+            transition: width 0.3s linear;
+        }
     </style>
 </head>
 <body>
@@ -233,6 +349,11 @@
 
     <div id="top-status-bar">
         <div id="status">Inicializando...</div>
+
+        <div id="crossfade-preview">
+            <div id="crossfade-preview-bar"><div id="crossfade-preview-fill"></div></div>
+            <span id="crossfade-preview-text"></span>
+        </div>
         
         <!-- CONTENEDOR DE VINILOS -->
         <div id="vinyl-container">
@@ -249,8 +370,18 @@
         <button id="playlist-btn">≡ Playlist (0)</button>
         <div id="playlist-container">
             <div id="playlist-header">
-                <span>Crossfade: <strong id="fade-info">10s</strong></span>
-                <button id="refresh-playlist-btn" title="Actualizar playlist desde la carpeta de marcadores">⟳</button>
+                <div id="crossfade-control">
+                    <label for="crossfade-slider">Crossfade</label>
+                    <input type="range" id="crossfade-slider" min="1" max="20" step="1" value="10">
+                    <span id="fade-info">10s</span>
+                </div>
+                <div id="playlist-controls-row">
+                    <button id="fav-filter-btn" class="control-icon-btn" title="Mostrar solo favoritos">★</button>
+                    <button id="notify-btn" class="control-icon-btn" title="Notificaciones de escritorio">🔔</button>
+                    <button id="shuffle-btn" class="control-icon-btn" title="Orden aleatorio">🔀</button>
+                    <button id="repeat-btn" class="control-icon-btn" title="Repetir: apagado">🔁</button>
+                    <button id="refresh-playlist-btn" class="control-icon-btn" title="Actualizar playlist desde la carpeta de marcadores">⟳</button>
+                </div>
             </div>
             <div id="playlist-items"></div>
         </div>

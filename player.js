@@ -8,6 +8,25 @@ let activePlayer = 'A';
 let isCrossfading = false;
 let checkInterval = null;
 
+const CROSSFADE_PREVIEW_LEAD = 10; // segundos antes del crossfade en que avisamos
+
+// --- Preferencias persistentes (shuffle, repeat, notificaciones, favoritos) ---
+let shuffleOn = false;
+let repeatMode = 'off'; // 'off' | 'all' | 'one'
+let shuffleBag = [];
+let shuffleCycleStarted = false;
+let notificationsOn = false;
+let favoritos = {};
+let mostrarSoloFavoritos = false;
+
+try { shuffleOn = localStorage.getItem('pb_shuffle') === '1'; } catch (e) {}
+try {
+    const savedRepeat = localStorage.getItem('pb_repeat');
+    if (savedRepeat === 'all' || savedRepeat === 'one') repeatMode = savedRepeat;
+} catch (e) {}
+try { notificationsOn = localStorage.getItem('pb_notify') === '1'; } catch (e) {}
+try { favoritos = JSON.parse(localStorage.getItem('pb_favoritos') || '{}'); } catch (e) { favoritos = {}; }
+
 // Parseo de parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
 const videosParam = urlParams.get('videos');
@@ -38,6 +57,11 @@ if (titlesParam) {
 }
 if (fadeParam) {
     crossfadeSec = parseInt(fadeParam, 10) || 10;
+} else {
+    try {
+        const savedCrossfade = localStorage.getItem('pb_crossfade_sec');
+        if (savedCrossfade) crossfadeSec = parseInt(savedCrossfade, 10) || crossfadeSec;
+    } catch (e) {}
 }
 
 function updateStatus(content) {
@@ -67,6 +91,31 @@ window.addEventListener('message', (event) => {
     }
 });
 
+function syncCrossfadeUI() {
+    const fadeInfo = document.getElementById('fade-info');
+    if (fadeInfo) fadeInfo.textContent = `${crossfadeSec}s`;
+    const slider = document.getElementById('crossfade-slider');
+    if (slider && parseInt(slider.value, 10) !== crossfadeSec) slider.value = crossfadeSec;
+}
+
+function renderRepeatBtn() {
+    const repeatBtn = document.getElementById('repeat-btn');
+    if (!repeatBtn) return;
+    repeatBtn.classList.toggle('active', repeatMode !== 'off');
+    repeatBtn.textContent = repeatMode === 'one' ? '🔂' : '🔁';
+    repeatBtn.title = repeatMode === 'off'
+        ? 'Repetir: apagado'
+        : repeatMode === 'all'
+            ? 'Repetir: toda la playlist'
+            : 'Repetir: este tema';
+}
+
+function notifyTrackIfNeeded(title) {
+    if (!notificationsOn) return;
+    if (document.hasFocus() && !document.hidden) return; // solo si la pestaña no está en foco
+    window.postMessage({ type: 'PB_NOTIFY_TRACK', title: 'Ahora suena', body: title }, '*');
+}
+
 function setupEvents() {
     const btn = document.getElementById('playlist-btn');
     const container = document.getElementById('playlist-container');
@@ -84,6 +133,70 @@ function setupEvents() {
         refreshBtn.onclick = (e) => {
             e.stopPropagation();
             recargarPlaylistDesdeMarcadores();
+        };
+    }
+
+    // Slider de crossfade en vivo
+    const crossfadeSlider = document.getElementById('crossfade-slider');
+    if (crossfadeSlider) {
+        crossfadeSlider.value = crossfadeSec;
+        crossfadeSlider.addEventListener('click', (e) => e.stopPropagation());
+        crossfadeSlider.addEventListener('input', () => {
+            crossfadeSec = parseInt(crossfadeSlider.value, 10) || 10;
+            syncCrossfadeUI();
+            try { localStorage.setItem('pb_crossfade_sec', String(crossfadeSec)); } catch (e) {}
+        });
+    }
+
+    // Shuffle
+    const shuffleBtn = document.getElementById('shuffle-btn');
+    if (shuffleBtn) {
+        shuffleBtn.classList.toggle('active', shuffleOn);
+        shuffleBtn.onclick = (e) => {
+            e.stopPropagation();
+            shuffleOn = !shuffleOn;
+            shuffleBag = [];
+            shuffleCycleStarted = false;
+            shuffleBtn.classList.toggle('active', shuffleOn);
+            try { localStorage.setItem('pb_shuffle', shuffleOn ? '1' : '0'); } catch (e) {}
+        };
+    }
+
+    // Repeat (off -> all -> one -> off)
+    const repeatBtn = document.getElementById('repeat-btn');
+    if (repeatBtn) {
+        renderRepeatBtn();
+        repeatBtn.onclick = (e) => {
+            e.stopPropagation();
+            repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+            renderRepeatBtn();
+            try { localStorage.setItem('pb_repeat', repeatMode); } catch (e) {}
+        };
+    }
+
+    // Notificaciones de escritorio
+    const notifyBtn = document.getElementById('notify-btn');
+    if (notifyBtn) {
+        notifyBtn.classList.toggle('active', notificationsOn);
+        notifyBtn.title = notificationsOn ? 'Notificaciones: activadas' : 'Notificaciones: desactivadas';
+        notifyBtn.onclick = (e) => {
+            e.stopPropagation();
+            notificationsOn = !notificationsOn;
+            notifyBtn.classList.toggle('active', notificationsOn);
+            notifyBtn.title = notificationsOn ? 'Notificaciones: activadas' : 'Notificaciones: desactivadas';
+            try { localStorage.setItem('pb_notify', notificationsOn ? '1' : '0'); } catch (e) {}
+        };
+    }
+
+    // Filtro de favoritos
+    const favFilterBtn = document.getElementById('fav-filter-btn');
+    if (favFilterBtn) {
+        favFilterBtn.classList.toggle('active', mostrarSoloFavoritos);
+        favFilterBtn.onclick = (e) => {
+            e.stopPropagation();
+            mostrarSoloFavoritos = !mostrarSoloFavoritos;
+            favFilterBtn.classList.toggle('active', mostrarSoloFavoritos);
+            renderPlaylist();
         };
     }
 }
@@ -149,6 +262,9 @@ function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
     videoList = [...keptInOrder, ...added];
     videoTitles = { ...videoTitles, ...freshTitles };
 
+    shuffleBag = [];
+    shuffleCycleStarted = false;
+
     currentIndex = videoList.indexOf(currentTrackId);
     if (currentIndex === -1) currentIndex = 0;
 
@@ -163,6 +279,94 @@ function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
 
 
 
+function toggleFavorito(id) {
+    if (favoritos[id]) {
+        delete favoritos[id];
+    } else {
+        favoritos[id] = true;
+    }
+    try { localStorage.setItem('pb_favoritos', JSON.stringify(favoritos)); } catch (e) {}
+    renderPlaylist();
+}
+
+function removeTrackFromSession(index) {
+    if (index === currentIndex) {
+        updateStatus('No podés quitar el tema que está sonando ahora mismo.');
+        return;
+    }
+    if (videoList.length <= 1) {
+        updateStatus('No podés vaciar la playlist completamente.');
+        return;
+    }
+
+    const removedId = videoList[index];
+    videoList.splice(index, 1);
+    if (index < currentIndex) currentIndex--;
+
+    shuffleBag = shuffleBag.filter(id => id !== removedId);
+
+    renderPlaylist();
+    updateStatus('Tema quitado de esta playlist (el marcador original sigue intacto).');
+}
+
+function shuffleArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function refillShuffleBag() {
+    const currentId = videoList[currentIndex];
+    shuffleBag = shuffleArray(videoList.filter(id => id !== currentId));
+}
+
+// Decide el próximo índice a reproducir según shuffle/repeat.
+// Devuelve -1 si no hay que seguir reproduciendo (fin de playlist sin repeat).
+function decideNextIndex() {
+    if (videoList.length === 0) return -1;
+
+    if (repeatMode === 'one') return currentIndex;
+
+    if (shuffleOn) {
+        if (videoList.length <= 1) return repeatMode === 'off' ? -1 : currentIndex;
+
+        if (shuffleBag.length === 0) {
+            if (shuffleCycleStarted && repeatMode === 'off') return -1;
+            refillShuffleBag();
+            shuffleCycleStarted = true;
+        }
+
+        const nextId = shuffleBag.pop();
+        const idx = videoList.indexOf(nextId);
+        if (idx === -1) return decideNextIndex(); // el track ya no existe, probamos con el siguiente
+        return idx;
+    }
+
+    const next = currentIndex + 1;
+    if (next < videoList.length) return next;
+    return repeatMode === 'all' ? 0 : -1;
+}
+
+function showCrossfadeCountdown(secsToFade) {
+    const el = document.getElementById('crossfade-preview');
+    const fill = document.getElementById('crossfade-preview-fill');
+    const text = document.getElementById('crossfade-preview-text');
+    if (!el || !fill || !text) return;
+
+    el.classList.add('active');
+    const progress = Math.max(0, Math.min(1, 1 - (secsToFade / CROSSFADE_PREVIEW_LEAD)));
+    fill.style.width = `${Math.round(progress * 100)}%`;
+    text.textContent = `🔀 Cruce en ${secsToFade}s`;
+}
+
+function hideCrossfadeCountdown() {
+    const el = document.getElementById('crossfade-preview');
+    if (el) el.classList.remove('active');
+}
+
 function clearIndicators() {
     document.querySelectorAll('.playlist-item').forEach(el => {
         el.classList.remove('drop-indicator-above', 'drop-indicator-below');
@@ -172,22 +376,56 @@ function clearIndicators() {
 function renderPlaylist() {
     const container = document.getElementById('playlist-items');
     const btn = document.getElementById('playlist-btn');
-    const fadeInfo = document.getElementById('fade-info');
 
     if (btn) btn.textContent = `≡ Playlist (${videoList.length})`;
-    if (fadeInfo) fadeInfo.textContent = `${crossfadeSec}s`;
+    syncCrossfadeUI();
 
     if (!container) return;
     container.innerHTML = '';
 
     let draggedIndex = null;
+    const filtroActivo = mostrarSoloFavoritos;
+    let visibleCount = 0;
 
     videoList.forEach((id, index) => {
+        if (filtroActivo && !favoritos[id]) return;
+        visibleCount++;
+
         const item = document.createElement('div');
         item.className = `playlist-item ${index === currentIndex ? 'active' : ''}`;
-        item.textContent = `${index + 1}. ${videoTitles[id] || `Track ${index + 1}`}`;
-        item.draggable = true;
+        item.draggable = !filtroActivo;
         item.dataset.index = index;
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'playlist-item-title';
+        const title = videoTitles[id] || `Track ${index + 1}`;
+        titleSpan.textContent = `${index + 1}. ${title}`;
+
+        const starBtn = document.createElement('button');
+        starBtn.className = 'star-track-btn' + (favoritos[id] ? ' active' : '');
+        starBtn.textContent = favoritos[id] ? '★' : '☆';
+        starBtn.title = favoritos[id] ? 'Quitar de favoritos' : 'Marcar como favorito';
+        starBtn.onclick = (e) => {
+            e.stopPropagation();
+            toggleFavorito(id);
+        };
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-track-btn';
+        removeBtn.textContent = '✕';
+        removeBtn.title = 'Quitar de esta playlist (no borra el marcador)';
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            removeTrackFromSession(index);
+        };
+
+        const actions = document.createElement('div');
+        actions.className = 'playlist-item-actions';
+        actions.appendChild(starBtn);
+        actions.appendChild(removeBtn);
+
+        item.appendChild(titleSpan);
+        item.appendChild(actions);
 
         item.onclick = (e) => {
             if (item.classList.contains('dragging')) return;
@@ -197,64 +435,76 @@ function renderPlaylist() {
                 targetPlayer.loadVideoById(videoList[currentIndex]);
                 targetPlayer.playVideo();
                 renderPlaylist();
-                updateStatus(`▶ Sonando: <strong>${videoTitles[id] || `Track ${index + 1}`}</strong>`);
+                updateStatus(`▶ Sonando: <strong>${title}</strong>`);
+                notifyTrackIfNeeded(title);
             }
         };
 
-        // Arrastrar y soltar con línea roja
-        item.addEventListener('dragstart', (e) => {
-            draggedIndex = index;
-            item.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-        });
+        if (!filtroActivo) {
+            // Arrastrar y soltar con línea roja
+            item.addEventListener('dragstart', (e) => {
+                draggedIndex = index;
+                item.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
 
-        item.addEventListener('dragend', () => {
-            item.classList.remove('dragging');
-            clearIndicators();
-        });
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                clearIndicators();
+            });
 
-        item.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            clearIndicators();
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                clearIndicators();
 
-            const rect = item.getBoundingClientRect();
-            const midpoint = rect.top + rect.height / 2;
+                const rect = item.getBoundingClientRect();
+                const midpoint = rect.top + rect.height / 2;
 
-            if (e.clientY < midpoint) {
-                item.classList.add('drop-indicator-above');
-            } else {
-                item.classList.add('drop-indicator-below');
-            }
-        });
+                if (e.clientY < midpoint) {
+                    item.classList.add('drop-indicator-above');
+                } else {
+                    item.classList.add('drop-indicator-below');
+                }
+            });
 
-        item.addEventListener('dragleave', () => {
-            item.classList.remove('drop-indicator-above', 'drop-indicator-below');
-        });
+            item.addEventListener('dragleave', () => {
+                item.classList.remove('drop-indicator-above', 'drop-indicator-below');
+            });
 
-        item.addEventListener('drop', (e) => {
-            e.preventDefault();
-            clearIndicators();
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                clearIndicators();
 
-            const targetIndex = parseInt(item.dataset.index, 10);
-            if (draggedIndex === null || draggedIndex === targetIndex) return;
+                const targetIndex = parseInt(item.dataset.index, 10);
+                if (draggedIndex === null || draggedIndex === targetIndex) return;
 
-            const rect = item.getBoundingClientRect();
-            const midpoint = rect.top + rect.height / 2;
-            let newIndex = e.clientY < midpoint ? targetIndex : targetIndex + 1;
+                const rect = item.getBoundingClientRect();
+                const midpoint = rect.top + rect.height / 2;
+                let newIndex = e.clientY < midpoint ? targetIndex : targetIndex + 1;
 
-            if (draggedIndex < newIndex) newIndex--;
+                if (draggedIndex < newIndex) newIndex--;
 
-            const currentTrackId = videoList[currentIndex];
-            const movedItem = videoList.splice(draggedIndex, 1)[0];
-            videoList.splice(newIndex, 0, movedItem);
+                const currentTrackId = videoList[currentIndex];
+                const movedItem = videoList.splice(draggedIndex, 1)[0];
+                videoList.splice(newIndex, 0, movedItem);
 
-            currentIndex = videoList.indexOf(currentTrackId);
-            renderPlaylist();
-        });
+                currentIndex = videoList.indexOf(currentTrackId);
+                shuffleBag = [];
+                shuffleCycleStarted = false;
+                renderPlaylist();
+            });
+        }
 
         container.appendChild(item);
     });
+
+    if (filtroActivo && visibleCount === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'playlist-empty-msg';
+        empty.textContent = 'No marcaste ningún favorito todavía. Tocá la ☆ de un tema para agregarlo.';
+        container.appendChild(empty);
+    }
 }
 
 function onYouTubeIframeAPIReady() {
@@ -281,7 +531,9 @@ function onYouTubeIframeAPIReady() {
                 e.target.setVolume(100);
                 e.target.playVideo();
                 startPlaybackMonitor();
-                updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[0]] || 'Track 1'}</strong>`);
+                const initialTitle = videoTitles[videoList[0]] || 'Track 1';
+                updateStatus(`▶ Sonando: <strong>${initialTitle}</strong>`);
+                notifyTrackIfNeeded(initialTitle);
             },
             'onError': (e) => {
                 console.error("Error en Player A:", e.data);
@@ -315,16 +567,24 @@ function startPlaybackMonitor() {
 
         if (duration > 0 && !isCrossfading) {
             const timeLeft = duration - currentTime;
-            if (timeLeft <= crossfadeSec && currentIndex < videoList.length - 1) {
-                startCrossfade();
+
+            if (timeLeft <= crossfadeSec) {
+                hideCrossfadeCountdown();
+                const nextIndex = decideNextIndex();
+                if (nextIndex !== -1) {
+                    startCrossfade(nextIndex);
+                }
+            } else if (timeLeft <= crossfadeSec + CROSSFADE_PREVIEW_LEAD) {
+                showCrossfadeCountdown(Math.ceil(timeLeft - crossfadeSec));
+            } else {
+                hideCrossfadeCountdown();
             }
         }
     }, 1000);
 }
 
-function startCrossfade() {
+function startCrossfade(nextIndex) {
     isCrossfading = true;
-    const nextIndex = currentIndex + 1;
 
     const fadeOutPlayer = activePlayer === 'A' ? playerA : playerB;
     const fadeInPlayer = activePlayer === 'A' ? playerB : playerA;
@@ -387,7 +647,9 @@ function startCrossfade() {
             }
 
             renderPlaylist();
-            updateStatus(`▶ Sonando: <strong>${videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`}</strong>`);
+            const newTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
+            updateStatus(`▶ Sonando: <strong>${newTitle}</strong>`);
+            notifyTrackIfNeeded(newTitle);
         } else {
             if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
             if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * 100));
