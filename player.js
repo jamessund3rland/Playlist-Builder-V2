@@ -112,7 +112,9 @@ function renderRepeatBtn() {
 
 function notifyTrackIfNeeded(title) {
     if (!notificationsOn) return;
-    if (document.hasFocus() && !document.hidden) return; // solo si la pestaña no está en foco
+    // Se muestra siempre que esté activado, sin importar si la pestaña
+    // está en foco o no — así aparece como notificación del sistema
+    // aunque estés viendo otra cosa en pantalla.
     window.postMessage({ type: 'PB_NOTIFY_TRACK', title: 'Ahora suena', body: title }, '*');
 }
 
@@ -192,11 +194,24 @@ function setupEvents() {
     const favFilterBtn = document.getElementById('fav-filter-btn');
     if (favFilterBtn) {
         favFilterBtn.classList.toggle('active', mostrarSoloFavoritos);
+        favFilterBtn.title = mostrarSoloFavoritos ? 'Mostrando solo favoritos (tocá para ver todos)' : 'Mostrar solo favoritos';
         favFilterBtn.onclick = (e) => {
             e.stopPropagation();
             mostrarSoloFavoritos = !mostrarSoloFavoritos;
             favFilterBtn.classList.toggle('active', mostrarSoloFavoritos);
+            favFilterBtn.title = mostrarSoloFavoritos ? 'Mostrando solo favoritos (tocá para ver todos)' : 'Mostrar solo favoritos';
+            shuffleBag = [];
+            shuffleCycleStarted = false;
             renderPlaylist();
+
+            if (mostrarSoloFavoritos) {
+                const cantidad = videoList.filter(id => favoritos[id]).length;
+                updateStatus(cantidad > 0
+                    ? `★ Reproduciendo solo favoritos (${cantidad})`
+                    : '⚠️ No marcaste ningún favorito todavía.');
+            } else {
+                updateStatus('Volviendo a reproducir toda la playlist');
+            }
         };
     }
 }
@@ -286,6 +301,12 @@ function toggleFavorito(id) {
         favoritos[id] = true;
     }
     try { localStorage.setItem('pb_favoritos', JSON.stringify(favoritos)); } catch (e) {}
+
+    if (mostrarSoloFavoritos) {
+        shuffleBag = [];
+        shuffleCycleStarted = false;
+    }
+
     renderPlaylist();
 }
 
@@ -318,24 +339,32 @@ function shuffleArray(arr) {
     return a;
 }
 
-function refillShuffleBag() {
-    const currentId = videoList[currentIndex];
-    shuffleBag = shuffleArray(videoList.filter(id => id !== currentId));
+function getPlaybackPool() {
+    if (!mostrarSoloFavoritos) return videoList;
+    return videoList.filter(id => favoritos[id]);
 }
 
-// Decide el próximo índice a reproducir según shuffle/repeat.
-// Devuelve -1 si no hay que seguir reproduciendo (fin de playlist sin repeat).
+function refillShuffleBag(pool) {
+    const currentId = videoList[currentIndex];
+    shuffleBag = shuffleArray(pool.filter(id => id !== currentId));
+}
+
+// Decide el próximo índice a reproducir según shuffle/repeat/favoritos.
+// Devuelve -1 si no hay que seguir reproduciendo.
 function decideNextIndex() {
     if (videoList.length === 0) return -1;
+
+    const pool = getPlaybackPool();
+    if (pool.length === 0) return -1; // filtro de favoritos activo y no hay ninguno marcado
 
     if (repeatMode === 'one') return currentIndex;
 
     if (shuffleOn) {
-        if (videoList.length <= 1) return repeatMode === 'off' ? -1 : currentIndex;
+        if (pool.length <= 1) return repeatMode === 'off' ? -1 : videoList.indexOf(pool[0]);
 
         if (shuffleBag.length === 0) {
             if (shuffleCycleStarted && repeatMode === 'off') return -1;
-            refillShuffleBag();
+            refillShuffleBag(pool);
             shuffleCycleStarted = true;
         }
 
@@ -345,9 +374,15 @@ function decideNextIndex() {
         return idx;
     }
 
-    const next = currentIndex + 1;
-    if (next < videoList.length) return next;
-    return repeatMode === 'all' ? 0 : -1;
+    const currentId = videoList[currentIndex];
+    const poolIndex = pool.indexOf(currentId);
+    // Si el tema actual no está en el pool (ej: se activó el filtro a mitad de un track no favorito), arrancamos desde el principio del pool.
+    const nextPoolIndex = poolIndex === -1 ? 0 : poolIndex + 1;
+
+    if (nextPoolIndex < pool.length) {
+        return videoList.indexOf(pool[nextPoolIndex]);
+    }
+    return repeatMode === 'all' ? videoList.indexOf(pool[0]) : -1;
 }
 
 function showCrossfadeCountdown(secsToFade) {
