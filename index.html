@@ -314,6 +314,32 @@
         #current-folder-line { color: #eee; font-weight: bold; }
         #current-folder-line:empty, #next-playlist-line:empty { display: none; }
 
+        #playlist-header { flex-shrink: 0; }
+        #queue-panel { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: #ccc; }
+        #queue-panel-head, #queue-panel-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+        #queue-panel-title { font-weight: bold; color: #888; text-transform: uppercase; font-size: 10px; }
+        .queue-mini-btn { background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+        .queue-mini-btn:hover { background: #444; }
+        .queue-mini-btn:disabled { opacity: .3; cursor: default; }
+        #queue-items { display: flex; flex-direction: column; gap: 3px; max-height: 130px; overflow-y: auto; }
+        .queue-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; background: #222; border-radius: 4px; padding: 3px 6px; border-top: 2px solid transparent; border-bottom: 2px solid transparent; cursor: grab; }
+        .queue-row .qname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+        .queue-row .qbtns { display: flex; gap: 3px; }
+        .queue-row.dragging { opacity: .4; }
+        .queue-row.drop-above { border-top-color: #ff2a00; }
+        .queue-row.drop-below { border-bottom-color: #ff2a00; }
+        .queue-row .qremove { background: #ff2a00; border-color: #ff2a00; }
+        .queue-row .qswap { background: #2d6cdf; border-color: #2d6cdf; }
+        #auto-toggle-label { cursor: pointer; }
+        #queue-picker { display: none; position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,.75); align-items: center; justify-content: center; pointer-events: auto; }
+        #queue-picker-box { width: 360px; max-width: 94vw; max-height: 80vh; background: #181818; border: 1px solid #444; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; color: #fff; }
+        #queue-picker-head { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; }
+        #queue-picker-search { width: 100%; box-sizing: border-box; padding: 7px; background: #282828; border: 1px solid #444; color: #fff; border-radius: 6px; }
+        #queue-picker-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px; }
+        .qp-row { display: flex; justify-content: space-between; align-items: center; background: #222; border-radius: 4px; padding: 5px 8px; font-size: 12px; gap: 6px; }
+        .qp-row .qname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+        .qp-row .qpick { background: #ff2a00; border-color: #ff2a00; }
+
         .cf-outgoing { color: #aaa; }
         .cf-incoming { color: #00e5ff; font-weight: bold; }
 
@@ -374,6 +400,14 @@
         </div>
     </div>
 
+    <div id="queue-picker">
+        <div id="queue-picker-box">
+            <div id="queue-picker-head"><span id="queue-picker-title">Elegí con qué playlist se sigue</span><button id="queue-picker-close" class="queue-mini-btn">Listo</button></div>
+            <input type="text" id="queue-picker-search" placeholder="Buscar carpeta…">
+            <div id="queue-picker-list"></div>
+        </div>
+    </div>
+
     <div id="playlist-wrapper">
         <button id="playlist-btn">≡ Playlist (0)</button>
         <div id="playlist-container">
@@ -393,6 +427,17 @@
                 <div id="next-playlist-info">
                     <div id="current-folder-line"></div>
                     <div id="next-playlist-line"></div>
+                </div>
+                <div id="queue-panel" style="display:none;">
+                    <div id="queue-panel-head">
+                        <span id="queue-panel-title">Siguientes playlists</span>
+                        <button id="queue-add-btn" class="queue-mini-btn" title="Elegir carpetas para seguir">➕ Agregar</button>
+                    </div>
+                    <div id="queue-items"></div>
+                    <div id="queue-panel-foot">
+                        <label id="auto-toggle-label"><input type="checkbox" id="auto-toggle"> 🎲 Al azar cuando se acabe la cola</label>
+                        <button id="queue-clear-btn" class="queue-mini-btn" style="display:none;">Vaciar</button>
+                    </div>
                 </div>
             </div>
             <div id="playlist-items"></div>

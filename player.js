@@ -47,6 +47,7 @@ let nextPlaylistTry = 0;
 let nextPlaylistLastTry = 0;
 let nextPlaylistError = false;
 let queueInfo = null;                  // { queueLength, next[], auto, currentName }
+let nextPlaylistStale = false;         // la cola cambió mientras se consultaba: descartar esa respuesta
 let awaitingCommitThenRequest = false; // se descartó una playlist entera rota: pedir otra al confirmarse
 
 // --- Pistas que YouTube no deja reproducir (bloqueadas por el dueño, privadas, eliminadas...) ---
@@ -127,6 +128,14 @@ window.addEventListener('message', (event) => {
         const d = event.data;
         nextPlaylistInFlight = false;
         nextPlaylistError = false;
+        if (nextPlaylistStale) {
+            // Se editó la cola mientras viajaba esta respuesta: ya no vale. Se pide de nuevo.
+            nextPlaylistStale = false;
+            nextPlaylist = null;
+            nextPlaylistLastTry = 0;
+            requestNextPlaylist();
+            return;
+        }
         if (d.ok && Array.isArray(d.videos) && d.videos.length > 0) {
             nextPlaylist = {
                 folderId: d.folderId,
@@ -140,6 +149,29 @@ window.addEventListener('message', (event) => {
             if (d.error) nextPlaylistError = true;
         }
         renderNextPlaylistInfo();
+        return;
+    }
+
+    if (event.data.type === 'PB_QUEUE_ACTION_RESULT') {
+        if (!event.data.error) {
+            queueInfo = event.data;
+            invalidateNextPlaylist();
+            renderNextPlaylistInfo();
+            if (event.data.warning === 'no-videos') updateStatus('⚠️ Esa carpeta no tiene enlaces de YouTube');
+        }
+        return;
+    }
+
+    if (event.data.type === 'PB_QUEUE_CHANGED') {
+        // Cambió la cola o el modo "al azar" (desde el popup, o el propio reproductor consumió una carpeta).
+        invalidateNextPlaylist();
+        requestQueueInfo();
+        return;
+    }
+
+    if (event.data.type === 'PB_FOLDERS_RESULT') {
+        queuePickerFolders = event.data.error ? [] : (event.data.folders || []);
+        renderQueuePicker();
         return;
     }
 
@@ -205,8 +237,188 @@ function requestQueueInfo() {
     window.postMessage({ type: 'PB_REQUEST_QUEUE_INFO', currentFolderId }, '*');
 }
 
+
+// --- Edición de la cola desde la página (mientras suena la música) ---
+let queuePickerState = null;      // { mode: 'add' } | { mode: 'replace', index, folderId }
+let queuePickerFolders = [];
+let queueDragFrom = null;
+
+// Si la cola o el modo al azar cambian, la "próxima playlist" ya descargada puede no valer más.
+// Excepción: la que ya empezó a sonar (cruce en curso) o ya se confirmó (ya salió de la cola).
+function invalidateNextPlaylist() {
+    if (isCrossfading && currentFade && currentFade.newPlaylist) return;
+    if (nextPlaylist && nextPlaylist.committed) return;
+    nextPlaylist = null;
+    nextPlaylistError = false;
+    nextPlaylistLastTry = 0;
+    if (nextPlaylistInFlight) nextPlaylistStale = true;
+    precheckKeyReset();
+}
+
+function precheckKeyReset() {
+    if (typeof lastPrecheckKey !== 'undefined') lastPrecheckKey = '';
+}
+
+function sendQueueAction(req) {
+    window.postMessage({ type: 'PB_QUEUE_ACTION', currentFolderId, ...req }, '*');
+}
+
+function renderQueuePanel() {
+    const panel = document.getElementById('queue-panel');
+    if (!panel) return;
+    if (!queueInfo || !Array.isArray(queueInfo.queue)) { panel.style.display = 'none'; return; }
+    panel.style.display = 'flex';
+
+    const list = document.getElementById('queue-items');
+    const queue = queueInfo.queue;
+    list.innerHTML = '';
+
+    if (queue.length === 0) {
+        const e = document.createElement('div');
+        e.style.color = '#888';
+        e.textContent = queueInfo.auto ? 'Cola vacía: sigue una carpeta al azar.' : 'Cola vacía: al terminar se detiene.';
+        list.appendChild(e);
+    }
+
+    queue.forEach((q, index) => {
+        const row = document.createElement('div');
+        row.className = 'queue-row';
+        row.draggable = true;
+        row.dataset.index = String(index);
+
+        const name = document.createElement('span');
+        name.className = 'qname';
+        name.textContent = `${index + 1}. 📁 ${q.title}${q.missing ? '' : ` (${q.count})`}`;
+        name.title = q.title;
+        row.appendChild(name);
+
+        const btns = document.createElement('span');
+        btns.className = 'qbtns';
+        const mk = (text, title, cls, fn, disabled) => {
+            const b = document.createElement('button');
+            b.className = 'queue-mini-btn ' + cls;
+            b.textContent = text; b.title = title;
+            b.disabled = !!disabled;
+            b.onclick = fn;
+            btns.appendChild(b);
+        };
+        mk('▲', 'Subir', 'qup', () => sendQueueAction({ action: 'move', folderId: q.id, from: index, to: index - 1 }), index === 0);
+        mk('▼', 'Bajar', 'qdown', () => sendQueueAction({ action: 'move', folderId: q.id, from: index, to: index + 1 }), index === queue.length - 1);
+        mk('⇄', 'Cambiar por otra carpeta', 'qswap', () => openQueuePicker({ mode: 'replace', index, folderId: q.id }));
+        mk('✕', 'Quitar de la cola', 'qremove', () => sendQueueAction({ action: 'remove', folderId: q.id, index }));
+        row.appendChild(btns);
+
+        row.addEventListener('dragstart', (e) => {
+            queueDragFrom = index;
+            row.classList.add('dragging');
+            if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(index)); } catch (_) {} }
+        });
+        row.addEventListener('dragend', () => {
+            queueDragFrom = null;
+            list.querySelectorAll('.queue-row').forEach((el) => el.classList.remove('dragging', 'drop-above', 'drop-below'));
+        });
+        row.addEventListener('dragover', (e) => {
+            if (queueDragFrom === null) return;
+            e.preventDefault();
+            const r = row.getBoundingClientRect();
+            const above = (e.clientY - r.top) < r.height / 2;
+            row.classList.toggle('drop-above', above);
+            row.classList.toggle('drop-below', !above);
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below'));
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (queueDragFrom === null) return;
+            const r = row.getBoundingClientRect();
+            const above = (e.clientY - r.top) < r.height / 2;
+            let to = above ? index : index + 1;
+            if (queueDragFrom < to) to -= 1;
+            const from = queueDragFrom;
+            queueDragFrom = null;
+            if (to !== from) sendQueueAction({ action: 'move', folderId: queue[from].id, from, to });
+            else renderQueuePanel();
+        });
+
+        list.appendChild(row);
+    });
+
+    const auto = document.getElementById('auto-toggle');
+    if (auto) auto.checked = queueInfo.auto !== false;
+    const clear = document.getElementById('queue-clear-btn');
+    if (clear) clear.style.display = queue.length > 0 ? 'inline-block' : 'none';
+}
+
+function renderQueuePicker() {
+    const listEl = document.getElementById('queue-picker-list');
+    if (!listEl || !queuePickerState) return;
+    const q = (document.getElementById('queue-picker-search').value || '').trim().toLowerCase();
+    const shown = queuePickerFolders.filter((f) => !q || f.title.toLowerCase().includes(q));
+    listEl.innerHTML = '';
+    if (shown.length === 0) {
+        const e = document.createElement('div');
+        e.style.color = '#888';
+        e.textContent = queuePickerFolders.length ? 'Ninguna carpeta coincide.' : 'Cargando carpetas…';
+        listEl.appendChild(e);
+        return;
+    }
+    shown.forEach((f) => {
+        const row = document.createElement('div');
+        row.className = 'qp-row';
+        row.style.paddingLeft = (8 + Math.min(f.depth, 6) * 12) + 'px';
+        const name = document.createElement('span');
+        name.className = 'qname';
+        name.textContent = `📁 ${f.title} (${f.count})`;
+        name.title = f.title;
+        row.appendChild(name);
+        const n = queueInfo && queueInfo.queue ? queueInfo.queue.filter((x) => x.id === f.id).length : 0;
+        const b = document.createElement('button');
+        b.className = 'queue-mini-btn qpick';
+        b.textContent = queuePickerState.mode === 'replace' ? 'Elegir' : (n ? `+ (${n})` : '+ Agregar');
+        b.onclick = () => {
+            if (queuePickerState.mode === 'replace') {
+                sendQueueAction({ action: 'replace', index: queuePickerState.index, folderId: queuePickerState.folderId, newFolderId: f.id });
+                closeQueuePicker();
+            } else {
+                sendQueueAction({ action: 'add', folderId: f.id });
+            }
+        };
+        row.appendChild(b);
+        listEl.appendChild(row);
+    });
+}
+
+function openQueuePicker(state) {
+    queuePickerState = state;
+    queuePickerFolders = [];
+    document.getElementById('queue-picker-title').textContent =
+        state.mode === 'replace' ? 'Cambiar por…' : 'Elegí con qué playlist se sigue';
+    document.getElementById('queue-picker-search').value = '';
+    document.getElementById('queue-picker').style.display = 'flex';
+    renderQueuePicker();
+    window.postMessage({ type: 'PB_REQUEST_FOLDERS' }, '*');
+}
+
+function closeQueuePicker() {
+    queuePickerState = null;
+    const el = document.getElementById('queue-picker');
+    if (el) el.style.display = 'none';
+}
+
+function setupQueuePanel() {
+    const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+    on('queue-add-btn', 'click', () => openQueuePicker({ mode: 'add' }));
+    on('queue-picker-close', 'click', closeQueuePicker);
+    on('queue-picker-search', 'input', renderQueuePicker);
+    on('queue-clear-btn', 'click', () => sendQueueAction({ action: 'clear' }));
+    on('auto-toggle', 'change', () => {
+        const el = document.getElementById('auto-toggle');
+        sendQueueAction({ action: 'setAuto', auto: el.checked });
+    });
+}
+
 // Muestra en el panel qué playlist suena y cuál viene después.
 function renderNextPlaylistInfo() {
+    renderQueuePanel();
     const currentEl = document.getElementById('current-folder-line');
     const nextEl = document.getElementById('next-playlist-line');
 
@@ -954,6 +1166,7 @@ function recoverFromFailedTrack() {
 
 function onYouTubeIframeAPIReady() {
     setupEvents();
+    setupQueuePanel();
     renderPlaylist();
     setTimeout(requestQueueInfo, 1000);
 
@@ -1100,6 +1313,7 @@ function startCrossfade(nextIndex, options = {}) {
 
     // Se avisa ya a la extensión que esta playlist empezó a sonar (la saca de la cola / del sorteo).
     if (newPlaylist) {
+        newPlaylist.committed = true;
         window.postMessage({
             type: 'PB_COMMIT_NEXT_PLAYLIST',
             folderId: newPlaylist.folderId,
