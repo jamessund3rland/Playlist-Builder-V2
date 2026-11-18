@@ -18,9 +18,6 @@ let shuffleCycleStarted = false;
 let notificationsOn = false;
 let favoritos = {};
 let mostrarSoloFavoritos = false;
-let masterVolume = 100;
-let fontScale = 1;
-let highContrastOn = false;
 
 try { shuffleOn = localStorage.getItem('pb_shuffle') === '1'; } catch (e) {}
 try {
@@ -29,25 +26,6 @@ try {
 } catch (e) {}
 try { notificationsOn = localStorage.getItem('pb_notify') === '1'; } catch (e) {}
 try { favoritos = JSON.parse(localStorage.getItem('pb_favoritos') || '{}'); } catch (e) { favoritos = {}; }
-try {
-    const savedVol = localStorage.getItem('pb_master_volume');
-    if (savedVol !== null) masterVolume = parseInt(savedVol, 10);
-} catch (e) {}
-if (isNaN(masterVolume) || masterVolume < 0 || masterVolume > 100) masterVolume = 100;
-try {
-    const savedFontScale = localStorage.getItem('pb_font_scale');
-    if (savedFontScale !== null) fontScale = parseFloat(savedFontScale);
-} catch (e) {}
-if (isNaN(fontScale) || fontScale < 0.7 || fontScale > 1.6) fontScale = 1;
-try { highContrastOn = localStorage.getItem('pb_high_contrast') === '1'; } catch (e) {}
-
-// --- Feature 23/24: precarga y vista previa del siguiente tema ---
-let nextIndexCache = null;
-let preloadedTrackId = null;
-let pendingIdByPlayer = { A: null, B: null };
-
-// --- Feature 28: links rotos ---
-let brokenTrackIds = new Set();
 
 // Parseo de parámetros URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -55,6 +33,38 @@ const videosParam = urlParams.get('videos');
 const titlesParam = urlParams.get('titles');
 const fadeParam = urlParams.get('crossfade');
 const folderIdParam = urlParams.get('folderId');
+
+// --- Cola de playlists / reproducción automática ---
+// Cuando termina la última pista de la playlist, se pide a la extensión cuál
+// es la próxima (primero la cola, y si está vacía una carpeta al azar) y se
+// hace crossfade hacia su primera pista, igual que entre pistas normales.
+const NEXT_PLAYLIST_LEAD = 60; // segundos de anticipación (además del crossfade) para ir a buscarla
+let currentFolderId = folderIdParam;   // carpeta de la playlist que está sonando
+let currentFolderName = '';
+let nextPlaylist = null;               // { folderId, name, source, videos[], titles{} } ya descargada
+let nextPlaylistInFlight = false;
+let nextPlaylistTry = 0;
+let nextPlaylistLastTry = 0;
+let nextPlaylistError = false;
+let queueInfo = null;                  // { queueLength, next[], auto, currentName }
+let awaitingCommitThenRequest = false; // se descartó una playlist entera rota: pedir otra al confirmarse
+
+// --- Pistas que YouTube no deja reproducir (bloqueadas por el dueño, privadas, eliminadas...) ---
+// Se detectan ANTES de que les toque sonar (chequeo previo vía la extensión) o, si el chequeo no
+// alcanza (p. ej. restricción por país), cuando el reproductor da error. En ambos casos el
+// crossfade va directo a la siguiente pista que sí se puede reproducir.
+const PRECHECK_AHEAD = 3;      // cuántas pistas por delante se revisan
+const badVideos = {};          // id -> 'blocked' | 'missing' | 'error'
+const verifiedOk = {};         // id -> true (el chequeo previo confirmó que se puede reproducir)
+const precheckTries = {};      // id -> veces que se pidió revisarla (para no insistir sin fin)
+let precheckInFlight = false;
+let precheckToken = 0;
+let lastPrecheckKey = '';
+let nearPrecheckKey = '';
+const playerVideoId = { A: null, B: null }; // qué video cargó cada reproductor (para saber cuál falló)
+let currentFade = null;        // datos del crossfade en curso (para poder cancelarlo si falla la entrante)
+let activeTrackFailed = false; // la pista que sonaba falló y hay que pasar a otra
+let crossfadeRetry = false;    // se canceló un cruce por una pista rota: el próximo intento va con el tiempo que quede
 
 if (videosParam) {
     videoList = videosParam.split(',').map(id => id.trim()).filter(id => id.length > 0);
@@ -110,92 +120,218 @@ window.addEventListener('message', (event) => {
         const { resolve } = pedidoRefreshPendiente;
         pedidoRefreshPendiente = null;
         resolve(event.data);
+        return;
     }
-});
 
-// --- Feature 35: sincronizar preferencias entre pestañas de la misma carpeta ---
-// 'storage' solo dispara en OTRAS pestañas del mismo origen, no en la que hizo el cambio.
-window.addEventListener('storage', (event) => {
-    if (!event.key) return;
-
-    switch (event.key) {
-        case 'pb_favoritos':
-            try { favoritos = JSON.parse(event.newValue || '{}'); } catch (e) { favoritos = {}; }
-            renderPlaylist();
-            break;
-
-        case 'pb_shuffle': {
-            shuffleOn = event.newValue === '1';
-            shuffleBag = [];
-            shuffleCycleStarted = false;
-            nextIndexCache = null;
-            const shuffleBtn = document.getElementById('shuffle-btn');
-            if (shuffleBtn) shuffleBtn.classList.toggle('active', shuffleOn);
-            break;
+    if (event.data.type === 'PB_NEXT_PLAYLIST_RESULT') {
+        const d = event.data;
+        nextPlaylistInFlight = false;
+        nextPlaylistError = false;
+        if (d.ok && Array.isArray(d.videos) && d.videos.length > 0) {
+            nextPlaylist = {
+                folderId: d.folderId,
+                name: d.name || 'Próxima playlist',
+                source: d.source,
+                videos: d.videos,
+                titles: d.titles || {}
+            };
+        } else {
+            nextPlaylist = null;
+            if (d.error) nextPlaylistError = true;
         }
+        renderNextPlaylistInfo();
+        return;
+    }
 
-        case 'pb_repeat':
-            repeatMode = (event.newValue === 'all' || event.newValue === 'one') ? event.newValue : 'off';
-            nextIndexCache = null;
-            renderRepeatBtn();
-            break;
+    if (event.data.type === 'PB_QUEUE_INFO_RESULT') {
+        queueInfo = event.data.error ? null : event.data;
+        renderNextPlaylistInfo();
+        return;
+    }
 
-        case 'pb_crossfade_sec':
-            crossfadeSec = parseInt(event.newValue, 10) || crossfadeSec;
-            syncCrossfadeUI();
-            break;
-
-        case 'pb_master_volume':
-            masterVolume = parseInt(event.newValue, 10);
-            if (isNaN(masterVolume)) masterVolume = 100;
-            syncVolumeUI();
-            break;
-
-        case 'pb_notify': {
-            notificationsOn = event.newValue === '1';
-            const notifyBtn = document.getElementById('notify-btn');
-            if (notifyBtn) {
-                notifyBtn.classList.toggle('active', notificationsOn);
-                notifyBtn.title = notificationsOn ? 'Notificaciones: activadas' : 'Notificaciones: desactivadas';
+    if (event.data.type === 'PB_CHECK_VIDEOS_RESULT') {
+        precheckInFlight = false;
+        const results = event.data.results || {};
+        let foundBad = false;
+        Object.keys(results).forEach((id) => {
+            const r = results[id];
+            if (r === 'ok') {
+                verifiedOk[id] = true;
+            } else if ((r === 'blocked' || r === 'missing') && !badVideos[id]) {
+                badVideos[id] = r;
+                foundBad = true;
             }
-            break;
+            // 'unknown' (sin internet, etc.): no se marca como rota, se reintenta más tarde.
+        });
+        if (foundBad) renderPlaylist();
+        precheckUpcoming(); // por si quedan candidatos sin revisar (p. ej. tras descartar una bloqueada)
+        return;
+    }
+
+    if (event.data.type === 'PB_COMMIT_RESULT') {
+        if (awaitingCommitThenRequest) {
+            awaitingCommitThenRequest = false;
+            nextPlaylistLastTry = 0;
+            requestNextPlaylist();
         }
-
-        case 'pb_font_scale':
-            fontScale = parseFloat(event.newValue);
-            if (isNaN(fontScale)) fontScale = 1;
-            applyFontScale();
-            break;
-
-        case 'pb_high_contrast':
-            highContrastOn = event.newValue === '1';
-            applyHighContrast();
-            break;
     }
 });
+
+function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
+
+// Pide a la extensión cuál es la próxima playlist (cola o al azar), sin consumirla todavía.
+function requestNextPlaylist() {
+    if (nextPlaylistInFlight) return;
+    nextPlaylistInFlight = true;
+    nextPlaylistLastTry = Date.now();
+    const thisTry = ++nextPlaylistTry;
+
+    setTimeout(() => {
+        if (nextPlaylistInFlight && thisTry === nextPlaylistTry) {
+            nextPlaylistInFlight = false;
+            nextPlaylistError = true;
+            renderNextPlaylistInfo();
+        }
+    }, 6000);
+
+    window.postMessage({ type: 'PB_REQUEST_NEXT_PLAYLIST', currentFolderId }, '*');
+}
+
+function requestQueueInfo() {
+    window.postMessage({ type: 'PB_REQUEST_QUEUE_INFO', currentFolderId }, '*');
+}
+
+// Muestra en el panel qué playlist suena y cuál viene después.
+function renderNextPlaylistInfo() {
+    const currentEl = document.getElementById('current-folder-line');
+    const nextEl = document.getElementById('next-playlist-line');
+
+    if (currentEl) {
+        const name = (queueInfo && queueInfo.currentName) || currentFolderName;
+        currentEl.textContent = name ? `📁 ${name}` : '';
+    }
+    if (!nextEl) return;
+
+    let text = '';
+    if (repeatMode !== 'off') {
+        text = '⏭ Próxima playlist: en pausa mientras 🔁 esté activado';
+    } else if (nextPlaylist) {
+        text = `⏭ Próxima: ${nextPlaylist.name} ${nextPlaylist.source === 'auto' ? '🎲 (al azar)' : '(de la cola)'}`;
+    } else if (nextPlaylistError) {
+        text = '⚠️ No se pudo consultar la cola (la extensión no responde). Probá recargar con F5.';
+    } else if (queueInfo && queueInfo.queueLength > 0) {
+        const extra = queueInfo.queueLength > 1 ? ` (+${queueInfo.queueLength - 1} más en cola)` : '';
+        text = `⏭ Próxima: ${queueInfo.next[0] || 'carpeta de la cola'}${extra}`;
+    } else if (queueInfo && queueInfo.auto) {
+        text = '⏭ Próxima: una carpeta al azar 🎲';
+    } else if (queueInfo) {
+        text = '⏹ Sin cola ni modo automático: al terminar la playlist se detiene';
+    }
+    nextEl.textContent = text;
+}
+
+// ¿Es la última pista de esta playlist? (misma lógica que decideNextIndex, pero sin efectos secundarios)
+function isLastTrackOfPlaylist() {
+    if (repeatMode !== 'off') return false;
+    if (videoList.length === 0) return false;
+
+    const pool = getPlaybackPool();
+    if (pool.length === 0) return true;
+
+    // Las pistas que quedan por delante y están marcadas como rotas no cuentan:
+    // si solo quedan de esas, esta es "la última" a todos los efectos.
+    if (shuffleOn) {
+        if (pool.length <= 1) return true;
+        if (!shuffleCycleStarted) return false;
+        return shuffleBag.every((id) => badVideos[id]);
+    }
+
+    const poolIndex = pool.indexOf(videoList[currentIndex]);
+    if (poolIndex === -1) return false;
+    return pool.slice(poolIndex + 1).every((id) => badVideos[id]);
+}
+
+// Cuando se acaba la playlist: crossfade hacia la primera pista de la próxima.
+// Devuelve true si el cruce arrancó.
+function tryAdvanceToNextPlaylist(timeLeft) {
+    if (isCrossfading) return false;
+
+    if (!nextPlaylist) {
+        // Todavía no llegó (o no hay): se vuelve a pedir, sin saturar.
+        if (!nextPlaylistInFlight && Date.now() - nextPlaylistLastTry > 8000) requestNextPlaylist();
+        return false;
+    }
+
+    // Arranca por la primera pista que no esté marcada como rota.
+    const startIndex = nextPlaylist.videos.findIndex((id) => !badVideos[id]);
+    if (startIndex === -1) {
+        // Todas las pistas de esa playlist están bloqueadas: se descarta (se consume) y se pide otra.
+        const broken = nextPlaylist;
+        nextPlaylist = null;
+        awaitingCommitThenRequest = true;
+        window.postMessage({
+            type: 'PB_COMMIT_NEXT_PLAYLIST',
+            folderId: broken.folderId,
+            source: broken.source,
+            previousFolderId: currentFolderId
+        }, '*');
+        return false;
+    }
+
+    // Si quedan menos segundos que el crossfade configurado, se acorta para que el cruce
+    // termine antes de que la pista actual se acabe.
+    const fadeSec = Math.max(1, Math.min(crossfadeSec, timeLeft));
+    const np = nextPlaylist;
+    np.startIndex = startIndex;
+    nextPlaylist = null;
+    startCrossfade(0, { newPlaylist: np, fadeSec });
+    return true;
+}
+
+// Reemplaza la playlist en pantalla por la nueva (se llama cuando el cruce terminó).
+function applyNewPlaylist(np) {
+    videoList = np.videos.slice();
+    videoTitles = { ...np.titles };
+    currentIndex = np.startIndex || 0;
+    currentFolderId = np.folderId;
+    currentFolderName = np.name || '';
+    shuffleBag = [];
+    shuffleCycleStarted = false;
+    nextPlaylist = null;
+    nextPlaylistError = false;
+    queueInfo = null;
+
+    // Si el filtro de favoritos estaba activo y esta playlist no tiene ninguno, se apaga
+    // para que no se quede sin temas.
+    if (mostrarSoloFavoritos && !videoList.some(id => favoritos[id])) {
+        mostrarSoloFavoritos = false;
+        const favFilterBtn = document.getElementById('fav-filter-btn');
+        if (favFilterBtn) {
+            favFilterBtn.classList.remove('active');
+            favFilterBtn.title = 'Mostrar solo favoritos';
+        }
+    }
+
+    // Si se recarga la página (F5), que vuelva a arrancar desde esta playlist y no desde la original.
+    // (mismo formato de URL que arma el popup de la extensión)
+    try {
+        let query = `?videos=${videoList.join(',')}`
+            + `&titles=${encodeURIComponent(JSON.stringify(videoTitles))}`
+            + `&crossfade=${crossfadeSec}`;
+        if (currentFolderId) query += `&folderId=${currentFolderId}`;
+        history.replaceState(null, '', `${window.location.pathname}${query}`);
+    } catch (e) { /* no es crítico */ }
+}
 
 function syncCrossfadeUI() {
     const fadeInfo = document.getElementById('fade-info');
     if (fadeInfo) fadeInfo.textContent = `${crossfadeSec}s`;
     const slider = document.getElementById('crossfade-slider');
     if (slider && parseInt(slider.value, 10) !== crossfadeSec) slider.value = crossfadeSec;
-}
-
-function syncVolumeUI() {
-    const volumeInfo = document.getElementById('volume-info');
-    if (volumeInfo) volumeInfo.textContent = `${masterVolume}%`;
-    const slider = document.getElementById('master-volume-slider');
-    if (slider && parseInt(slider.value, 10) !== masterVolume) slider.value = masterVolume;
-}
-
-function applyFontScale() {
-    document.documentElement.style.setProperty('--pb-font-scale', fontScale);
-}
-
-function applyHighContrast() {
-    document.body.classList.toggle('high-contrast', highContrastOn);
-    const contrastBtn = document.getElementById('contrast-btn');
-    if (contrastBtn) contrastBtn.classList.toggle('active', highContrastOn);
 }
 
 function renderRepeatBtn() {
@@ -219,9 +355,6 @@ function notifyTrackIfNeeded(title) {
 }
 
 function setupEvents() {
-    applyFontScale();
-    applyHighContrast();
-
     const btn = document.getElementById('playlist-btn');
     const container = document.getElementById('playlist-container');
 
@@ -230,6 +363,7 @@ function setupEvents() {
             e.stopPropagation();
             const isHidden = container.style.display === 'none' || container.style.display === '';
             container.style.display = isHidden ? 'flex' : 'none';
+            if (isHidden) requestQueueInfo(); // al abrir el panel, refresca qué viene después
         };
     }
 
@@ -262,7 +396,6 @@ function setupEvents() {
             shuffleOn = !shuffleOn;
             shuffleBag = [];
             shuffleCycleStarted = false;
-            nextIndexCache = null;
             shuffleBtn.classList.toggle('active', shuffleOn);
             try { localStorage.setItem('pb_shuffle', shuffleOn ? '1' : '0'); } catch (e) {}
         };
@@ -275,8 +408,8 @@ function setupEvents() {
         repeatBtn.onclick = (e) => {
             e.stopPropagation();
             repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
-            nextIndexCache = null;
             renderRepeatBtn();
+            renderNextPlaylistInfo();
             try { localStorage.setItem('pb_repeat', repeatMode); } catch (e) {}
         };
     }
@@ -295,56 +428,6 @@ function setupEvents() {
         };
     }
 
-    // Volumen maestro
-    const volumeSlider = document.getElementById('master-volume-slider');
-    if (volumeSlider) {
-        syncVolumeUI();
-        volumeSlider.addEventListener('click', (e) => e.stopPropagation());
-        volumeSlider.addEventListener('input', () => {
-            masterVolume = parseInt(volumeSlider.value, 10);
-            syncVolumeUI();
-            try { localStorage.setItem('pb_master_volume', String(masterVolume)); } catch (e) {}
-
-            if (!isCrossfading) {
-                const activePlayerObj = activePlayer === 'A' ? playerA : playerB;
-                if (activePlayerObj && typeof activePlayerObj.setVolume === 'function') {
-                    activePlayerObj.setVolume(masterVolume);
-                }
-            }
-        });
-    }
-
-    // Tamaño de letra
-    const fontDecBtn = document.getElementById('font-decrease-btn');
-    const fontIncBtn = document.getElementById('font-increase-btn');
-    if (fontDecBtn) {
-        fontDecBtn.onclick = (e) => {
-            e.stopPropagation();
-            fontScale = Math.max(0.7, Math.round((fontScale - 0.1) * 10) / 10);
-            applyFontScale();
-            try { localStorage.setItem('pb_font_scale', String(fontScale)); } catch (e) {}
-        };
-    }
-    if (fontIncBtn) {
-        fontIncBtn.onclick = (e) => {
-            e.stopPropagation();
-            fontScale = Math.min(1.6, Math.round((fontScale + 0.1) * 10) / 10);
-            applyFontScale();
-            try { localStorage.setItem('pb_font_scale', String(fontScale)); } catch (e) {}
-        };
-    }
-
-    // Alto contraste
-    const contrastBtn = document.getElementById('contrast-btn');
-    if (contrastBtn) {
-        contrastBtn.onclick = (e) => {
-            e.stopPropagation();
-            highContrastOn = !highContrastOn;
-            applyHighContrast();
-            try { localStorage.setItem('pb_high_contrast', highContrastOn ? '1' : '0'); } catch (e) {}
-        };
-    }
-
     // Filtro de favoritos
     const favFilterBtn = document.getElementById('fav-filter-btn');
     if (favFilterBtn) {
@@ -357,8 +440,6 @@ function setupEvents() {
             favFilterBtn.title = mostrarSoloFavoritos ? 'Mostrando solo favoritos (tocá para ver todos)' : 'Mostrar solo favoritos';
             shuffleBag = [];
             shuffleCycleStarted = false;
-            nextIndexCache = null;
-            preloadedTrackId = null;
             renderPlaylist();
 
             if (mostrarSoloFavoritos) {
@@ -414,7 +495,7 @@ function recargarPlaylistDesdeMarcadores() {
         }
     };
 
-    window.postMessage({ type: 'PB_REQUEST_REFRESH', folderId: folderIdParam }, '*');
+    window.postMessage({ type: 'PB_REQUEST_REFRESH', folderId: currentFolderId }, '*');
 }
 
 function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
@@ -436,9 +517,6 @@ function aplicarActualizacionDeMarcadores(freshIds, freshTitles) {
 
     shuffleBag = [];
     shuffleCycleStarted = false;
-    nextIndexCache = null;
-    preloadedTrackId = null;
-    brokenTrackIds.clear();
 
     currentIndex = videoList.indexOf(currentTrackId);
     if (currentIndex === -1) currentIndex = 0;
@@ -465,28 +543,9 @@ function toggleFavorito(id) {
     if (mostrarSoloFavoritos) {
         shuffleBag = [];
         shuffleCycleStarted = false;
-        nextIndexCache = null;
     }
 
     renderPlaylist();
-}
-
-// Salta directamente a un track (click manual o recuperación tras un link roto).
-function saltarATrack(index) {
-    currentIndex = index;
-    const targetPlayer = activePlayer === 'A' ? playerA : playerB;
-    if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
-        pendingIdByPlayer[activePlayer] = videoList[currentIndex];
-        targetPlayer.loadVideoById(videoList[currentIndex]);
-        targetPlayer.setVolume(masterVolume);
-        targetPlayer.playVideo();
-        nextIndexCache = null;
-        preloadedTrackId = null;
-        renderPlaylist();
-        const title = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
-        updateStatus(`▶ Sonando: <strong>${title}</strong>`);
-        notifyTrackIfNeeded(title);
-    }
 }
 
 function removeTrackFromSession(index) {
@@ -504,8 +563,6 @@ function removeTrackFromSession(index) {
     if (index < currentIndex) currentIndex--;
 
     shuffleBag = shuffleBag.filter(id => id !== removedId);
-    nextIndexCache = null;
-    preloadedTrackId = null;
 
     renderPlaylist();
     updateStatus('Tema quitado de esta playlist (el marcador original sigue intacto).');
@@ -532,13 +589,14 @@ function refillShuffleBag(pool) {
 
 // Decide el próximo índice a reproducir según shuffle/repeat/favoritos.
 // Devuelve -1 si no hay que seguir reproduciendo.
-function decideNextIndex() {
+// (from = pista desde la que se cuenta "la siguiente"; por defecto la actual.)
+function decideNextIndex(from = currentIndex, opts = {}) {
     if (videoList.length === 0) return -1;
 
     const pool = getPlaybackPool();
     if (pool.length === 0) return -1; // filtro de favoritos activo y no hay ninguno marcado
 
-    if (repeatMode === 'one') return currentIndex;
+    if (repeatMode === 'one' && !opts.ignoreRepeatOne) return from;
 
     if (shuffleOn) {
         if (pool.length <= 1) return repeatMode === 'off' ? -1 : videoList.indexOf(pool[0]);
@@ -551,11 +609,11 @@ function decideNextIndex() {
 
         const nextId = shuffleBag.pop();
         const idx = videoList.indexOf(nextId);
-        if (idx === -1) return decideNextIndex(); // el track ya no existe, probamos con el siguiente
+        if (idx === -1) return decideNextIndex(from, opts); // el track ya no existe, probamos con el siguiente
         return idx;
     }
 
-    const currentId = videoList[currentIndex];
+    const currentId = videoList[from];
     const poolIndex = pool.indexOf(currentId);
     // Si el tema actual no está en el pool (ej: se activó el filtro a mitad de un track no favorito), arrancamos desde el principio del pool.
     const nextPoolIndex = poolIndex === -1 ? 0 : poolIndex + 1;
@@ -566,58 +624,80 @@ function decideNextIndex() {
     return repeatMode === 'all' ? videoList.indexOf(pool[0]) : -1;
 }
 
-// Envuelve decideNextIndex() en una caché: shuffle "consume" de la bolsa
-// cada vez que se llama, así que decidimos una sola vez por ciclo y
-// reusamos el resultado para precarga, vista previa y el crossfade real.
-function getUpcomingIndex() {
-    if (nextIndexCache === null) {
-        nextIndexCache = decideNextIndex();
+// Igual que decideNextIndex, pero se salta las pistas marcadas como no reproducibles.
+// Devuelve -1 si no queda ninguna reproducible por delante.
+function decideNextPlayableIndex() {
+    let from = currentIndex;
+    for (let guard = 0; guard <= videoList.length; guard++) {
+        // Si la pista actual es una rota, "repetir esta" no tiene sentido: se sigue de largo.
+        const ignoreRepeatOne = guard > 0 || !!badVideos[videoList[from]];
+        const idx = decideNextIndex(from, { ignoreRepeatOne });
+        if (idx === -1) return -1;
+        if (!badVideos[videoList[idx]]) return idx;
+        from = idx;
     }
-    return nextIndexCache;
+    return -1;
 }
 
-// --- Feature 23: precarga silenciosa del próximo tema ---
-function preloadNextTrack(nextIndex) {
-    if (nextIndex === -1) return;
-    const nextId = videoList[nextIndex];
-    if (preloadedTrackId === nextId) return; // ya está precargado
+// --- Chequeo previo: ¿se van a poder reproducir las próximas pistas? ---
+// Devuelve (sin consumir nada) los ids de las próximas PRECHECK_AHEAD pistas que se van a
+// reproducir, más las primeras de la próxima playlist cuando ya está descargada.
+function getUpcomingCandidateIds() {
+    const ids = [];
+    const push = (id) => { if (id && !badVideos[id] && !ids.includes(id)) ids.push(id); };
 
-    const idleLabel = activePlayer === 'A' ? 'B' : 'A';
-    const idlePlayer = idleLabel === 'A' ? playerA : playerB;
+    if (repeatMode !== 'one') {
+        const pool = getPlaybackPool();
+        const currentId = videoList[currentIndex];
 
-    if (idlePlayer && typeof idlePlayer.cueVideoById === 'function') {
-        try {
-            idlePlayer.cueVideoById(nextId);
-            idlePlayer.setVolume(0);
-            preloadedTrackId = nextId;
-            pendingIdByPlayer[idleLabel] = nextId;
-        } catch (e) {
-            preloadedTrackId = null;
+        if (shuffleOn) {
+            // En aleatorio el orden se define al llenar la "bolsa": se llena ya para poder mirar adelante.
+            if (!shuffleCycleStarted && pool.length > 1) {
+                refillShuffleBag(pool);
+                shuffleCycleStarted = true;
+            }
+            for (let i = shuffleBag.length - 1; i >= 0 && ids.length < PRECHECK_AHEAD; i--) push(shuffleBag[i]);
+        } else if (pool.length > 0) {
+            const poolIndex = pool.indexOf(currentId);
+            for (let step = 1; step <= pool.length && ids.length < PRECHECK_AHEAD; step++) {
+                let k = poolIndex === -1 ? step - 1 : poolIndex + step;
+                if (k >= pool.length) {
+                    if (repeatMode === 'all') k %= pool.length; else break;
+                }
+                if (pool[k] !== currentId) push(pool[k]);
+            }
         }
     }
-}
 
-// --- Feature 24: vista previa del próximo tema (nombre + miniatura) ---
-function updateNextTrackPreview(nextIndex) {
-    const el = document.getElementById('next-track-preview');
-    const thumb = document.getElementById('next-track-thumb');
-    const titleEl = document.getElementById('next-track-title');
-    if (!el || !thumb || !titleEl) return;
-
-    if (nextIndex === -1) {
-        el.classList.remove('active');
-        return;
+    if (nextPlaylist) {
+        let added = 0;
+        for (const id of nextPlaylist.videos) {
+            if (added >= PRECHECK_AHEAD) break;
+            if (badVideos[id]) continue;
+            push(id);
+            added++;
+        }
     }
-
-    const nextId = videoList[nextIndex];
-    thumb.src = `https://img.youtube.com/vi/${nextId}/mqdefault.jpg`;
-    titleEl.textContent = videoTitles[nextId] || `Track ${nextIndex + 1}`;
-    el.classList.add('active');
+    return ids;
 }
 
-function hideNextTrackPreview() {
-    const el = document.getElementById('next-track-preview');
-    if (el) el.classList.remove('active');
+function precheckUpcoming() {
+    if (precheckInFlight) return;
+
+    const wanted = getUpcomingCandidateIds()
+        .filter((id) => !verifiedOk[id] && !badVideos[id] && (precheckTries[id] || 0) < 2);
+    if (wanted.length === 0) return;
+
+    const ids = wanted.slice(0, 6);
+    ids.forEach((id) => { precheckTries[id] = (precheckTries[id] || 0) + 1; });
+
+    precheckInFlight = true;
+    const thisToken = ++precheckToken;
+    setTimeout(() => {
+        if (precheckInFlight && thisToken === precheckToken) precheckInFlight = false;
+    }, 8000);
+
+    window.postMessage({ type: 'PB_CHECK_VIDEOS', ids }, '*');
 }
 
 function showCrossfadeCountdown(secsToFade) {
@@ -649,13 +729,8 @@ function renderPlaylist() {
 
     if (btn) btn.textContent = `≡ Playlist (${videoList.length})`;
     syncCrossfadeUI();
-    syncVolumeUI();
 
     if (!container) return;
-
-    // Feature 40: no perder la posición de scroll al reordenar/refrescar/actualizar favoritos
-    const previousScrollTop = container.scrollTop;
-
     container.innerHTML = '';
 
     let draggedIndex = null;
@@ -667,14 +742,15 @@ function renderPlaylist() {
         visibleCount++;
 
         const item = document.createElement('div');
-        item.className = `playlist-item ${index === currentIndex ? 'active' : ''}${brokenTrackIds.has(id) ? ' broken-track' : ''}`;
+        item.className = `playlist-item ${index === currentIndex ? 'active' : ''}${badVideos[id] ? ' unplayable' : ''}`;
+        if (badVideos[id]) item.title = 'No se puede reproducir (bloqueada por el dueño, privada o eliminada): se saltea';
         item.draggable = !filtroActivo;
         item.dataset.index = index;
 
         const titleSpan = document.createElement('span');
         titleSpan.className = 'playlist-item-title';
         const title = videoTitles[id] || `Track ${index + 1}`;
-        titleSpan.textContent = `${index + 1}. ${title}${brokenTrackIds.has(id) ? ' ⚠️' : ''}`;
+        titleSpan.textContent = `${badVideos[id] ? '⚠️ ' : ''}${index + 1}. ${title}`;
 
         const starBtn = document.createElement('button');
         starBtn.className = 'star-track-btn' + (favoritos[id] ? ' active' : '');
@@ -704,7 +780,17 @@ function renderPlaylist() {
 
         item.onclick = (e) => {
             if (item.classList.contains('dragging')) return;
-            saltarATrack(index);
+            currentIndex = index;
+            activeTrackFailed = false; // eligió otra pista a mano: se corta cualquier recuperación en curso
+            const targetPlayer = activePlayer === 'A' ? playerA : playerB;
+            if (targetPlayer && typeof targetPlayer.loadVideoById === 'function') {
+                playerVideoId[activePlayer] = videoList[currentIndex];
+                targetPlayer.loadVideoById(videoList[currentIndex]);
+                targetPlayer.playVideo();
+                renderPlaylist();
+                updateStatus(`▶ Sonando: <strong>${title}</strong>`);
+                notifyTrackIfNeeded(title);
+            }
         };
 
         if (!filtroActivo) {
@@ -759,8 +845,6 @@ function renderPlaylist() {
                 currentIndex = videoList.indexOf(currentTrackId);
                 shuffleBag = [];
                 shuffleCycleStarted = false;
-                nextIndexCache = null;
-                preloadedTrackId = null;
                 renderPlaylist();
             });
         }
@@ -774,18 +858,109 @@ function renderPlaylist() {
         empty.textContent = 'No marcaste ningún favorito todavía. Tocá la ☆ de un tema para agregarlo.';
         container.appendChild(empty);
     }
+}
 
-    container.scrollTop = previousScrollTop;
+// Red de seguridad: si una pista llega a su fin sin que el monitor (que mira cada 1 s)
+// haya alcanzado a arrancar el cruce, se sigue igual en vez de quedar en silencio.
+function onPlayerStateChange(which, e) {
+    if (!e || e.data !== 0) return; // 0 = ENDED
+    if (which !== activePlayer || isCrossfading) return;
+
+    const nextIndex = decideNextPlayableIndex();
+    if (nextIndex !== -1) {
+        startCrossfade(nextIndex, { fadeSec: 1 });
+    } else {
+        tryAdvanceToNextPlaylist(0);
+    }
+}
+
+// --- Errores de YouTube (video bloqueado, privado, eliminado, restringido en tu país...) ---
+function onPlayerError(which, e) {
+    const code = e && e.data;
+    const failedId = playerVideoId[which];
+    console.warn(`Error de YouTube (${code}) en el reproductor ${which} con el video ${failedId}`);
+
+    // 1) Falló la pista que estaba ENTRANDO en un crossfade: se cancela el cruce (la actual
+    //    sigue sonando) y se vuelve a intentar con la siguiente pista que sí se pueda reproducir.
+    if (isCrossfading && which !== activePlayer) {
+        abortCrossfade(failedId);
+        return;
+    }
+
+    // 2) Falló la pista que SUENA (o que debía sonar): se marca y se pasa a otra enseguida.
+    if (!isCrossfading && which === activePlayer) {
+        if (failedId && !badVideos[failedId]) badVideos[failedId] = 'error';
+        activeTrackFailed = true;
+        renderPlaylist();
+        recoverFromFailedTrack();
+    }
+    // Cualquier otro caso (reproductor inactivo, o la saliente durante un cruce) no necesita acción.
+}
+
+// Cancela el crossfade en curso porque la pista entrante falló, y deja todo como estaba
+// (la saliente vuelve a su volumen). El monitor reintenta con la próxima pista reproducible.
+function abortCrossfade(failedId) {
+    const f = currentFade;
+    if (!f) return;
+
+    clearInterval(f.interval);
+    currentFade = null;
+    isCrossfading = false;
+    if (failedId && !badVideos[failedId]) badVideos[failedId] = 'error';
+
+    try { if (f.fadeInPlayer && f.fadeInPlayer.stopVideo) f.fadeInPlayer.stopVideo(); } catch (err) {}
+    if (f.fadeOutPlayer && f.fadeOutPlayer.setVolume) f.fadeOutPlayer.setVolume(100);
+
+    if (f.fadeOutDiv && f.fadeInDiv) {
+        f.fadeOutDiv.style.zIndex = '2';
+        f.fadeOutDiv.style.pointerEvents = 'auto';
+        f.fadeOutDiv.style.opacity = '1';
+        f.fadeInDiv.style.zIndex = '1';
+        f.fadeInDiv.style.pointerEvents = 'none';
+        f.fadeInDiv.style.opacity = '0';
+    }
+    const vinylContainer = document.getElementById('vinyl-container');
+    if (vinylContainer) vinylContainer.classList.remove('active');
+
+    // Si el cruce era hacia otra playlist, se deja lista para reintentar con su siguiente pista.
+    if (f.newPlaylist) nextPlaylist = f.newPlaylist;
+
+    crossfadeRetry = true; // el reintento tiene que terminar antes de que se acabe la pista actual
+
+    const failedTitle = (f.newPlaylist ? f.newPlaylist.titles : videoTitles)[failedId] || 'una pista';
+    updateStatus(`⚠️ <strong>${escapeHtml(failedTitle)}</strong> no se puede reproducir: se prueba con la siguiente`);
+    renderPlaylist();
+}
+
+// La pista que sonaba falló: pasar YA a la siguiente reproducible (o a la próxima playlist).
+// Se reintenta desde el monitor cada segundo mientras activeTrackFailed siga activo.
+function recoverFromFailedTrack() {
+    if (isCrossfading) return;
+
+    const nextIndex = decideNextPlayableIndex();
+    if (nextIndex !== -1) {
+        startCrossfade(nextIndex, { fadeSec: 1, outgoingNote: '⚠️ no se puede reproducir' });
+        return;
+    }
+
+    // No queda nada reproducible en esta playlist: se sigue con la próxima.
+    if (nextPlaylist) {
+        tryAdvanceToNextPlaylist(0);
+    } else {
+        if (!nextPlaylistInFlight && Date.now() - nextPlaylistLastTry > 8000) requestNextPlaylist();
+        updateStatus('⚠️ La pista no se puede reproducir y no quedan más en esta playlist: buscando la próxima…');
+    }
 }
 
 function onYouTubeIframeAPIReady() {
     setupEvents();
     renderPlaylist();
+    setTimeout(requestQueueInfo, 1000);
 
     updateStatus("Cargando reproductor...");
 
     const origin = window.location.origin;
-    pendingIdByPlayer.A = videoList[0];
+    playerVideoId.A = videoList[0];
 
     playerA = new YT.Player('playerA', {
         height: '100%',
@@ -800,78 +975,34 @@ function onYouTubeIframeAPIReady() {
         },
         events: {
             'onReady': (e) => {
-                e.target.setVolume(masterVolume);
+                e.target.setVolume(100);
                 e.target.playVideo();
                 startPlaybackMonitor();
                 const initialTitle = videoTitles[videoList[0]] || 'Track 1';
                 updateStatus(`▶ Sonando: <strong>${initialTitle}</strong>`);
                 notifyTrackIfNeeded(initialTitle);
             },
-            'onError': (e) => handlePlayerError('A', e.data)
+            'onStateChange': (e) => onPlayerStateChange('A', e),
+            'onError': (e) => onPlayerError('A', e)
         }
     });
 
     playerB = new YT.Player('playerB', {
         height: '100%',
         width: '100%',
-        playerVars: { 
-            'autoplay': 0, 
-            'controls': 1, 
-            'rel': 0, 
+        playerVars: {
+            'autoplay': 0,
+            'controls': 1,
+            'rel': 0,
             'iv_load_policy': 3,
-            'origin': origin 
+            'origin': origin
         },
         events: {
-            'onError': (e) => handlePlayerError('B', e.data)
+            'onStateChange': (e) => onPlayerStateChange('B', e),
+            'onError': (e) => onPlayerError('B', e)
         }
     });
 }
-
-// --- Feature 28: detectar links rotos y saltarlos automáticamente ---
-function handlePlayerError(playerLabel, errorCode) {
-    const videoId = pendingIdByPlayer[playerLabel];
-    if (!videoId) return;
-
-    const errorMessages = {
-        2: 'ID de video inválido',
-        5: 'Error de reproducción',
-        100: 'video no encontrado o eliminado',
-        101: 'el dueño no permite reproducirlo embebido',
-        150: 'el dueño no permite reproducirlo embebido'
-    };
-    const reason = errorMessages[errorCode] || 'error desconocido';
-
-    brokenTrackIds.add(videoId);
-    const brokenIndex = videoList.indexOf(videoId);
-    const brokenTitle = videoTitles[videoId] || (brokenIndex !== -1 ? `Track ${brokenIndex + 1}` : 'este tema');
-
-    console.error(`Playlist Builder: no se pudo reproducir "${brokenTitle}" (${videoId}) — ${reason}`);
-    renderPlaylist();
-
-    // Solo saltamos automáticamente si el error ocurrió en el reproductor
-    // que está activo en este momento (si fue el de precarga, ya lo
-    // resolvemos de nuevo al llegar el turno real del crossfade).
-    if (playerLabel !== activePlayer) return;
-
-    updateStatus(`⚠️ No se pudo reproducir "<strong>${brokenTitle}</strong>" (${reason}). Saltando al siguiente...`);
-
-    nextIndexCache = null;
-    const nextIndex = decideNextIndex();
-
-    if (nextIndex === -1) {
-        updateStatus('⚠️ No se pudo reproducir el tema y no hay más para seguir.');
-        return;
-    }
-
-    const nextId = videoList[nextIndex];
-    if (brokenTrackIds.has(nextId) && brokenTrackIds.size >= videoList.length) {
-        updateStatus('⚠️ Ningún tema de esta playlist se pudo reproducir. Revisá los marcadores.');
-        return;
-    }
-
-    setTimeout(() => saltarATrack(nextIndex), 1200);
-}
-
 
 function startPlaybackMonitor() {
     if (checkInterval) clearInterval(checkInterval);
@@ -880,53 +1011,102 @@ function startPlaybackMonitor() {
         const currentPlayer = activePlayer === 'A' ? playerA : playerB;
         if (!currentPlayer || typeof currentPlayer.getCurrentTime !== 'function' || typeof currentPlayer.getDuration !== 'function') return;
 
+        // La pista que sonaba falló (un video roto no reporta duración): seguir intentando pasar a otra.
+        if (activeTrackFailed && !isCrossfading) {
+            recoverFromFailedTrack();
+            return;
+        }
+
         const currentTime = currentPlayer.getCurrentTime();
         const duration = currentPlayer.getDuration();
 
         if (duration > 0 && !isCrossfading) {
             const timeLeft = duration - currentTime;
 
+            // Chequeo previo: se revisa si las próximas pistas se pueden reproducir, apenas empieza
+            // la actual (y de nuevo cerca del final), así el cruce ya sabe a dónde ir.
+            const precheckKey = `${currentFolderId}|${currentIndex}|${videoList.length}|${nextPlaylist ? nextPlaylist.folderId : ''}|${shuffleOn}|${repeatMode}`;
+            if (precheckKey !== lastPrecheckKey) {
+                lastPrecheckKey = precheckKey;
+                nearPrecheckKey = '';
+                precheckUpcoming();
+            }
+            if (timeLeft <= crossfadeSec + 20 && nearPrecheckKey !== precheckKey) {
+                nearPrecheckKey = precheckKey;
+                precheckUpcoming();
+            }
+
+            // Última pista de la playlist: se va a buscar la próxima (cola o al azar) con anticipación.
+            if (timeLeft <= crossfadeSec + NEXT_PLAYLIST_LEAD && isLastTrackOfPlaylist()) {
+                if (!nextPlaylist && !nextPlaylistInFlight && Date.now() - nextPlaylistLastTry > 8000) {
+                    requestNextPlaylist();
+                }
+            }
+
             if (timeLeft <= crossfadeSec) {
                 hideCrossfadeCountdown();
-                hideNextTrackPreview();
-                const nextIndex = getUpcomingIndex();
-                nextIndexCache = null; // se reinicia para el próximo ciclo
+                const nextIndex = decideNextPlayableIndex();
                 if (nextIndex !== -1) {
-                    startCrossfade(nextIndex);
+                    // Si el cruce arranca tarde (p. ej. se reintenta tras una pista rota), se acorta para
+                    // que termine antes de que se acabe la actual.
+                    const late = crossfadeRetry || timeLeft < crossfadeSec - 1;
+                    startCrossfade(nextIndex, late ? { fadeSec: Math.max(1, Math.min(crossfadeSec, timeLeft)) } : {});
+                } else {
+                    // La playlist se acabó: seguimos con la próxima en vez de quedar en silencio.
+                    tryAdvanceToNextPlaylist(timeLeft);
                 }
             } else if (timeLeft <= crossfadeSec + CROSSFADE_PREVIEW_LEAD) {
                 showCrossfadeCountdown(Math.ceil(timeLeft - crossfadeSec));
-                const nextIndex = getUpcomingIndex();
-                updateNextTrackPreview(nextIndex);
-                preloadNextTrack(nextIndex);
             } else {
                 hideCrossfadeCountdown();
-                hideNextTrackPreview();
             }
         }
     }, 1000);
 }
 
-function startCrossfade(nextIndex) {
+// Cruza hacia la pista nextIndex de la playlist actual o, si options.newPlaylist está
+// presente, hacia la PRIMERA pista de otra playlist (cola / modo automático).
+// options.fadeSec permite acortar el cruce (por defecto usa el crossfade configurado).
+function startCrossfade(nextIndex, options = {}) {
     isCrossfading = true;
+
+    const newPlaylist = options.newPlaylist || null;
+    const fadeSec = options.fadeSec || crossfadeSec;
 
     const fadeOutPlayer = activePlayer === 'A' ? playerA : playerB;
     const fadeInPlayer = activePlayer === 'A' ? playerB : playerA;
-    const fadeInLabel = activePlayer === 'A' ? 'B' : 'A';
 
     const fadeOutDiv = document.getElementById(activePlayer === 'A' ? 'playerA' : 'playerB');
     const fadeInDiv = document.getElementById(activePlayer === 'A' ? 'playerB' : 'playerA');
 
+    const startIdx = newPlaylist ? (newPlaylist.startIndex || 0) : nextIndex;
+    const nextVideoId = newPlaylist ? newPlaylist.videos[startIdx] : videoList[nextIndex];
     const currentTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
-    const nextTitle = videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`;
-    const nextId = videoList[nextIndex];
+    const nextTitle = newPlaylist
+        ? (newPlaylist.titles[nextVideoId] || `Track ${startIdx + 1}`)
+        : (videoTitles[videoList[nextIndex]] || `Track ${nextIndex + 1}`);
+    const nextFolderBadge = newPlaylist ? ` <span style="opacity: 0.7;">· 📁 ${escapeHtml(newPlaylist.name)}</span>` : '';
+    const outgoingNote = options.outgoingNote ? ` <span style="color: #ffb300;">(${options.outgoingNote})</span>` : '';
+
+    // Qué video carga el reproductor entrante (para saber cuál falló si da error).
+    playerVideoId[activePlayer === 'A' ? 'B' : 'A'] = nextVideoId;
 
     // Actualización de estado en tiempo real para indicar salida y entrada
     updateStatus(`
-        <span class="cf-outgoing">🔻 Saliendo: <strong>${currentTitle}</strong></span>
+        <span class="cf-outgoing">🔻 Saliendo: <strong>${currentTitle}</strong>${outgoingNote}</span>
         <span style="margin: 0 8px; opacity: 0.4;">|</span>
-        <span class="cf-incoming">🔺 Entrando: <strong>${nextTitle}</strong></span>
+        <span class="cf-incoming">🔺 Entrando: <strong>${nextTitle}</strong>${nextFolderBadge}</span>
     `);
+
+    // Se avisa ya a la extensión que esta playlist empezó a sonar (la saca de la cola / del sorteo).
+    if (newPlaylist) {
+        window.postMessage({
+            type: 'PB_COMMIT_NEXT_PLAYLIST',
+            folderId: newPlaylist.folderId,
+            source: newPlaylist.source,
+            previousFolderId: currentFolderId
+        }, '*');
+    }
 
     // Mostrar animación de vinilos al iniciar el crossfade
     const vinylContainer = document.getElementById('vinyl-container');
@@ -947,20 +1127,11 @@ function startCrossfade(nextIndex) {
 
     if (fadeInPlayer && typeof fadeInPlayer.loadVideoById === 'function') {
         fadeInPlayer.setVolume(0);
-        pendingIdByPlayer[fadeInLabel] = nextId;
-
-        // Feature 23: si ya lo precargamos (cueVideoById), evitamos volver a
-        // pedirlo — arranca más rápido y sin el pequeño salto de carga.
-        if (preloadedTrackId === nextId) {
-            fadeInPlayer.playVideo();
-        } else {
-            fadeInPlayer.loadVideoById(nextId);
-            fadeInPlayer.playVideo();
-        }
-        preloadedTrackId = null;
+        fadeInPlayer.loadVideoById(nextVideoId);
+        fadeInPlayer.playVideo();
     }
 
-    const durationMs = crossfadeSec * 1000;
+    const durationMs = fadeSec * 1000;
     const intervalMs = 50;
     const totalSteps = durationMs / intervalMs;
     let currentStep = 0;
@@ -971,10 +1142,18 @@ function startCrossfade(nextIndex) {
 
         if (progress >= 1) {
             clearInterval(fadeInterval);
+            currentFade = null;
             if (fadeOutPlayer && typeof fadeOutPlayer.stopVideo === 'function') fadeOutPlayer.stopVideo();
             activePlayer = activePlayer === 'A' ? 'B' : 'A';
-            currentIndex = nextIndex;
+
+            if (newPlaylist) {
+                applyNewPlaylist(newPlaylist); // reemplaza la lista y deja currentIndex en la pista de arranque
+            } else {
+                currentIndex = nextIndex;
+            }
             isCrossfading = false;
+            activeTrackFailed = false;
+            crossfadeRetry = false;
 
             // Ocultar animación de vinilos al finalizar la transición
             if (vinylContainer) {
@@ -983,13 +1162,21 @@ function startCrossfade(nextIndex) {
 
             renderPlaylist();
             const newTitle = videoTitles[videoList[currentIndex]] || `Track ${currentIndex + 1}`;
-            updateStatus(`▶ Sonando: <strong>${newTitle}</strong>`);
+            const folderBadge = newPlaylist ? ` <span style="opacity: 0.7;">· 📁 ${escapeHtml(newPlaylist.name)}</span>` : '';
+            updateStatus(`▶ Sonando: <strong>${newTitle}</strong>${folderBadge}`);
             notifyTrackIfNeeded(newTitle);
+
+            if (newPlaylist) {
+                requestQueueInfo(); // actualiza "Próxima playlist" en el panel
+            }
         } else {
-            if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * masterVolume));
-            if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * masterVolume));
+            if (fadeOutPlayer && typeof fadeOutPlayer.setVolume === 'function') fadeOutPlayer.setVolume(Math.round((1 - progress) * 100));
+            if (fadeInPlayer && typeof fadeInPlayer.setVolume === 'function') fadeInPlayer.setVolume(Math.round(progress * 100));
         }
     }, intervalMs);
+
+    // Se guarda lo necesario para poder cancelar el cruce si la pista entrante falla.
+    currentFade = { interval: fadeInterval, fadeOutPlayer, fadeInPlayer, fadeOutDiv, fadeInDiv, newPlaylist };
 }
 
 // --- ESCUCHAR ACTUALIZACIONES EN TIEMPO REAL DESDE LA EXTENSIÓN ---
